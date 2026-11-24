@@ -4,22 +4,16 @@ set -euo pipefail
 project_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 source_dir="$project_dir/macos"
 dist_dir="$project_dir/dist"
-bundle="$dist_dir/想法画布.app"
-stage_dir="$dist_dir/.build-lock"
+archive="$dist_dir/想法画布-macOS.zip"
+stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/idea-canvas-build.XXXXXXXX")"
 candidate="$stage_dir/想法画布.app"
-previous="$stage_dir/previous.app"
-
-mkdir -p "$dist_dir"
-if ! mkdir "$stage_dir" 2>/dev/null; then
-    printf '无法使用构建暂存目录 %s\n' "$stage_dir" >&2
-    exit 1
-fi
+staged_archive=""
 
 cleanup() {
-    if [[ -e "$previous" || -L "$previous" ]] && [[ ! -e "$bundle" && ! -L "$bundle" ]]; then
-        mv "$previous" "$bundle" || return 1
+    if [[ -n "$staged_archive" ]]; then
+        rm -f -- "$staged_archive"
     fi
-    rm -rf "$stage_dir"
+    rm -rf -- "$stage_dir"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -38,15 +32,15 @@ cp -X "$project_dir/想法画布.html" "$candidate/Contents/Resources/Canvas.htm
 /usr/bin/xcrun --sdk macosx swiftc -O -target "$target" \
     "$source_dir/CanvasApp.swift" "$source_dir/CanvasLoopback.swift" "$source_dir/DiskWorkspace.swift" \
     -o "$candidate/Contents/MacOS/$executable"
-# File Provider can attach Finder metadata when the bundle is created in Documents.
-if /usr/bin/xattr -p com.apple.FinderInfo "$candidate" >/dev/null 2>&1; then
-    /usr/bin/xattr -d com.apple.FinderInfo "$candidate"
-fi
 /usr/bin/codesign --force --sign - "$candidate"
 /usr/bin/codesign --verify --deep --strict "$candidate"
 
-if [[ -e "$bundle" || -L "$bundle" ]]; then
-    mv "$bundle" "$previous"
+mkdir -p "$dist_dir"
+if [[ -d "$archive" ]]; then
+    printf '构建产物路径被文件夹占用 %s\n' "$archive" >&2
+    exit 1
 fi
-mv "$candidate" "$bundle"
-printf '%s\n' "$bundle"
+staged_archive="$(mktemp "$dist_dir/.release.XXXXXXXX")"
+/usr/bin/ditto -c -k --keepParent --norsrc --noextattr "$candidate" "$staged_archive"
+mv -f -- "$staged_archive" "$archive"
+printf '%s\n' "$archive"

@@ -10,7 +10,7 @@
 ./build.sh
 ```
 
-签名后的 App 位于 `dist/想法画布.app`。Swift 源码、图标和应用配置位于 `macos/`。
+构建生成 `dist/想法画布-macOS.zip`。将压缩包解开到 `~/Applications` 即可取得已签名的 App。Swift 源码、图标和应用配置位于 `macos/`。
 
 ## 查看画布和预览
 

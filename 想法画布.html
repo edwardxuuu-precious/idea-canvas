@@ -355,10 +355,15 @@ svg { display: block; }
 .zoom-value:hover { background: var(--glass-hover); }
 .nav-divider { width: 1px; height: 16px; margin: 0 3px; background: var(--line); }
 
-.stage-meta { position: fixed; display: flex; bottom: 18px; left: 16px; z-index: 7; align-items: center; gap: 10px; }
+.stage-meta { position: fixed; display: flex; bottom: 18px; left: 16px; z-index: 7; align-items: center; gap: 8px; }
 .help-btn {
   background: var(--glass); backdrop-filter: blur(14px); border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-island); border-radius: 10px; width: 34px; height: 34px;
+}
+.version-pill {
+  padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 620; letter-spacing: .01em;
+  color: var(--ink-soft); background: var(--glass); backdrop-filter: blur(14px);
+  border: 1px solid var(--border-subtle); box-shadow: var(--shadow);
 }
 #counts { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 
@@ -1034,8 +1039,8 @@ button.card-chip:hover, .card-fold:hover { border-color: var(--board-accent, var
       <div id="frames"></div>
       <svg id="connections" xmlns="http://www.w3.org/2000/svg" aria-label="卡片连线">
         <defs id="edge-markers">
-          <marker id="arrow" viewBox="0 0 9 9" refX="8" refY="4.5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L9 4.5L0 9Z" fill="#89a095"/></marker>
-          <marker id="arrow-selected" viewBox="0 0 9 9" refX="8" refY="4.5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L9 4.5L0 9Z" fill="#347853"/></marker>
+          <marker id="arrow" viewBox="0 0 9 9" refX="8" refY="4.5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L9 4.5L0 9Z" fill="#64748b"/></marker>
+          <marker id="arrow-selected" viewBox="0 0 9 9" refX="8" refY="4.5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L9 4.5L0 9Z" fill="#0f766e"/></marker>
         </defs>
         <g id="layout-guide-layer" aria-hidden="true"></g>
         <g id="matrix-drop-layer" aria-hidden="true"></g>
@@ -1081,6 +1086,7 @@ button.card-chip:hover, .card-fold:hover { border-color: var(--board-accent, var
 
   <div class="stage-meta">
     <button type="button" class="icon-btn help-btn" data-action="help" title="操作指南" aria-label="操作指南"><svg class="icon" aria-hidden="true"><use href="#i-help"/></svg></button>
+    <span class="version-pill" title="想法画布 2.0">v2.0</span>
     <span id="counts"></span>
   </div>
 
@@ -1283,7 +1289,7 @@ button.card-chip:hover, .card-fold:hover { border-color: var(--board-accent, var
 
 <dialog id="help-dialog" aria-labelledby="help-heading">
   <div class="help-content">
-    <div class="dialog-header"><h2 id="help-heading">操作指南</h2><button type="button" class="icon-btn" data-action="close-help" aria-label="关闭指南"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="dialog-header"><h2 id="help-heading">操作指南 · v2.0</h2><button type="button" class="icon-btn" data-action="close-help" aria-label="关闭指南"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
     <dl class="help-list">
       <div><dt>新建卡片</dt><dd>双击空白 <kbd>N</kbd></dd></div>
       <div><dt>原位快速编辑 / 大窗详情</dt><dd>双击卡片 / 悬浮条点 <kbd>⤢</kbd> 或 <kbd>E</kbd></dd></div>
@@ -1650,9 +1656,16 @@ const CanvasData = (() => {
 
   function appearance(value) {
     const defaults = newAppearance();
-    for (const key of ['background','gridColor','accent']) if (isColor(value?.[key])) defaults[key] = value[key];
+    const legacyDefault = value &&
+      typeof value.background === 'string' && value.background.toLowerCase() === '#f6f6ef' &&
+      typeof value.gridColor === 'string' && value.gridColor.toLowerCase() === '#a7b3a4' &&
+      value.gridSize === 23 &&
+      typeof value.accent === 'string' && value.accent.toLowerCase() === '#347853';
+    if (!legacyDefault) {
+      for (const key of ['background','gridColor','accent']) if (isColor(value?.[key])) defaults[key] = value[key];
+      if (within(value?.gridSize, 10, 64)) defaults.gridSize = value.gridSize;
+    }
     defaults.grid = listed(value?.grid, ['dots','lines','none'], defaults.grid);
-    if (within(value?.gridSize, 10, 64)) defaults.gridSize = value.gridSize;
     for (const key of ['card','branch','link']) defaults[key] = styles(value?.[key], key === 'card' ? 'card' : 'line');
     return defaults;
   }
@@ -3665,9 +3678,9 @@ const CanvasInspector = (() => {
       changeProperty(appearance, 'gridSize', number(event.target.value, appearance.gridSize, range));
     }, [10, 64]);
     const fields = el('div', 'inspector-fields');
-    fields.append(boardColor(appearance, 'background', '画布背景', '#f6f6ef'),
-      boardColor(appearance, 'accent', '强调色', '#347853'), field('网格样式', grid),
-      boardColor(appearance, 'gridColor', '网格颜色', '#a7b3a4'), field('网格间距', size));
+    fields.append(boardColor(appearance, 'background', '画布背景', '#f7f8fa'),
+      boardColor(appearance, 'accent', '强调色', '#0f766e'), field('网格样式', grid),
+      boardColor(appearance, 'gridColor', '网格颜色', '#94a3b8'), field('网格间距', size));
     return fields;
   }
 
@@ -3830,9 +3843,9 @@ const CanvasInspector = (() => {
     return block;
   }
 
-  const cardDefaults = { fill: '#fdfdf8', border: '#d5dfd3', text: '#203a2d', size: 14, shape: 'rounded' };
-  const branchDefaults = { color: '#789685', width: 1.4, shape: 'curve', dash: 'solid', arrow: 'end' };
-  const linkDefaults = { ...branchDefaults, color: '#9aafa3' };
+  const cardDefaults = { fill: '#ffffff', border: '#e2e8f0', text: '#0f172a', size: 14, shape: 'rounded' };
+  const branchDefaults = { color: '#64748b', width: 1.5, shape: 'curve', dash: 'solid', arrow: 'end' };
+  const linkDefaults = { ...branchDefaults, color: '#94a3b8' };
 
   function cardDefaultValues(node) {
     if (!node) return cardDefaults;
@@ -5163,8 +5176,9 @@ function edgeStyle(edge) {
   const inherited = hierarchy.parent.get(edge.to) === edge.from
     ? inheritedBranches.get(edge.to)
     : { ...inheritedBranches.get(edge.from), ...nodeBy(edge.to)?.branchStyle };
+  const dark = isDarkHex(appearance.background);
   return {
-    color: branch ? '#789685' : '#9aafa3', width: 1.4, shape: 'curve', dash: 'solid', arrow: 'end',
+    color: branch ? (dark ? '#475569' : '#64748b') : (dark ? '#64748b' : '#94a3b8'), width: 1.5, shape: 'curve', dash: 'solid', arrow: 'end',
     ...(branch ? appearance.branch : appearance.link),
     ...(branch ? inherited : {}),
     ...edge.style,

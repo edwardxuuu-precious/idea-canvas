@@ -393,6 +393,8 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         let menu = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu(title: "想法画布")
+        appMenu.addItem(withTitle: "关于想法画布", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出想法画布", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         menu.addItem(appItem)

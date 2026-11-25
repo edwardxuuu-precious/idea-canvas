@@ -37,6 +37,25 @@ private func diskError(_ operation: String, _ code: Int32 = errno) -> DiskWorksp
     DiskWorkspaceError("\(operation)（\(String(cString: strerror(code)))）。")
 }
 
+private enum CanvasJSON: Decodable, Equatable {
+    case null
+    case bool(Bool)
+    case number(Double)
+    case string(String)
+    case array([CanvasJSON])
+    case object([String: CanvasJSON])
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer()
+        if value.decodeNil() { self = .null }
+        else if let item = try? value.decode(Bool.self) { self = .bool(item) }
+        else if let item = try? value.decode(Double.self) { self = .number(item) }
+        else if let item = try? value.decode(String.self) { self = .string(item) }
+        else if let item = try? value.decode([CanvasJSON].self) { self = .array(item) }
+        else { self = .object(try value.decode([String: CanvasJSON].self)) }
+    }
+}
+
 private struct DiskSnapshot {
     enum Tone: String, Decodable { case topic, idea, question, action, reference }
     enum EdgeKind: String, Decodable { case branch, link }
@@ -47,11 +66,17 @@ private struct DiskSnapshot {
         let tone: Tone
         let title, body: String
         let richBody: String?
+        let style, branchStyle: CanvasJSON?
+        let status, priority: String?
+        let tags: [String]?
+        let pinned: Bool?
+        let order: Double?
     }
 
     struct Edge: Decodable, Equatable {
         let id, from, to, label: String
         let kind: EdgeKind
+        let style: CanvasJSON?
     }
 
     struct View: Decodable {
@@ -63,8 +88,9 @@ private struct DiskSnapshot {
         let nodes: [Card]
         let edges: [Edge]
         let view: View?
+        let settings: CanvasJSON?
 
-        private enum CodingKeys: String, CodingKey { case id, name, nodes, edges, view }
+        private enum CodingKeys: String, CodingKey { case id, name, nodes, edges, view, settings }
 
         init(from decoder: Decoder) throws {
             let fields = try decoder.container(keyedBy: CodingKeys.self)
@@ -73,10 +99,11 @@ private struct DiskSnapshot {
             nodes = try fields.decode([Card].self, forKey: .nodes)
             edges = try fields.decode([Edge].self, forKey: .edges)
             view = try fields.decode(View?.self, forKey: .view)
+            settings = try fields.decodeIfPresent(CanvasJSON.self, forKey: .settings)
         }
 
         func sameContent(as other: Board) -> Bool {
-            id == other.id && name == other.name && nodes == other.nodes && edges == other.edges
+            id == other.id && name == other.name && nodes == other.nodes && edges == other.edges && settings == other.settings
         }
     }
 
@@ -84,6 +111,7 @@ private struct DiskSnapshot {
         let version: Int
         let activeId: String
         let boards: [Board]
+        let themes: CanvasJSON?
     }
 
     let bytes: Data
@@ -101,7 +129,7 @@ private struct DiskSnapshot {
         } catch {
             throw DiskWorkspaceError("画布 JSON 损坏或缺少必要字段。")
         }
-        guard workspace.version == 1 || workspace.version == 2 else {
+        guard (1...3).contains(workspace.version) else {
             throw DiskWorkspaceError("无法读取此版本的画布数据。")
         }
         var boardIDs = Set<String>()
@@ -158,7 +186,8 @@ private struct DiskSnapshot {
     func sameContent(as other: DiskSnapshot) -> Bool {
         let boards = workspace.boards
         let previous = other.workspace.boards
-        return boards.count == previous.count && zip(boards, previous).allSatisfy { $0.sameContent(as: $1) }
+        return workspace.themes == other.workspace.themes && boards.count == previous.count &&
+            zip(boards, previous).allSatisfy { $0.sameContent(as: $1) }
     }
 
     func deletesContent(from earlier: DiskSnapshot) -> Bool {
@@ -292,7 +321,7 @@ final class DiskWorkspace: @unchecked Sendable {
             throw CanvasSyncConflict(snapshot: current)
         }
         let next = try DiskSnapshot(bytes)
-        if previous?.workspace.version == 2 && next.workspace.version == 1 {
+        if let version = previous?.workspace.version, next.workspace.version < version {
             throw DiskWorkspaceError("请刷新浏览器页面，再同步这份画布。")
         }
         if let previous, !next.sameContent(as: previous) {

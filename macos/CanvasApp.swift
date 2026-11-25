@@ -66,16 +66,23 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
             let webView = WKWebView(frame: .zero, configuration: configuration)
             webView.navigationDelegate = self
             webView.uiDelegate = self
+            let initialBackground = NSColor(srgbRed: 0.961, green: 0.965, blue: 0.973, alpha: 1.0)
+            webView.underPageBackgroundColor = initialBackground
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 1270, height: 810),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered, defer: false
             )
             window.title = "想法画布"
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = false
+            window.backgroundColor = initialBackground
             window.minSize = NSSize(width: 510, height: 395)
             window.delegate = self
             window.contentView = webView
-            window.center()
+            if !window.setFrameUsingName(Self.windowFrameName) { window.center() }
+            window.setFrameAutosaveName(Self.windowFrameName)
             self.window = window
             self.webView = webView
             window.makeKeyAndOrderFront(nil)
@@ -94,6 +101,20 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
         return false
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        webView?.evaluateJavaScript(
+            "document.documentElement.dataset.fullscreen = 'true'; window.dispatchEvent(new Event('resize'));",
+            completionHandler: nil
+        )
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        webView?.evaluateJavaScript(
+            "delete document.documentElement.dataset.fullscreen; window.dispatchEvent(new Event('resize'));",
+            completionHandler: nil
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -241,20 +262,52 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         case "backups-folder":
             openBackupsFolder()
             replyHandler(true, nil)
+        case "window-chrome":
+            let dark = (body["dark"] as? Bool) ?? false
+            window?.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            if let hex = body["background"] as? String, let bgColor = Self.color(fromHex: hex) {
+                window?.backgroundColor = bgColor
+                webView?.underPageBackgroundColor = bgColor
+            }
+            replyHandler(true, nil)
         default:
             replyHandler(nil, "无法识别此操作。")
         }
     }
 
+    private static func color(fromHex hex: String) -> NSColor? {
+        let trimmed = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("#"), trimmed.count == 7,
+              let value = UInt32(trimmed.dropFirst(), radix: 16) else { return nil }
+        let r = CGFloat((value >> 16) & 0xff) / 255.0
+        let g = CGFloat((value >> 8) & 0xff) / 255.0
+        let b = CGFloat(value & 0xff) / 255.0
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1.0)
+    }
+
+    private static let windowFrameName = "IdeaCanvasMainWindow"
+    private static let exportFormats: [String: (title: String, type: UTType)] = [
+        "html": ("导出可编辑 HTML", .html),
+        "json": ("导出 JSON", .json),
+        "md": ("导出 Markdown", UTType(filenameExtension: "md") ?? .plainText),
+        "svg": ("导出 SVG 矢量图", .svg),
+        "png": ("导出 PNG 图片", .png),
+    ]
+
     private func export(_ body: [String: Any], replyHandler: @escaping (Any?, String?) -> Void) {
-        guard let window, let kind = body["kind"] as? String, ["html", "json"].contains(kind),
+        guard let window, let kind = body["kind"] as? String, let format = Self.exportFormats[kind],
             let filename = body["filename"] as? String, let contents = body["contents"] as? String else {
             replyHandler(nil, "导出数据无法读取。")
             return
         }
+        let payload = kind == "png" ? Data(base64Encoded: contents) : Data(contents.utf8)
+        guard let payload else {
+            replyHandler(nil, "导出数据无法读取。")
+            return
+        }
         let panel = NSSavePanel()
-        panel.title = kind == "html" ? "导出可编辑 HTML" : "导出 JSON"
-        panel.allowedContentTypes = [kind == "html" ? .html : .json]
+        panel.title = format.title
+        panel.allowedContentTypes = [format.type]
         panel.nameFieldStringValue = URL(fileURLWithPath: filename).lastPathComponent
         panel.canCreateDirectories = true
         panel.beginSheetModal(for: window) { [fileQueue, store] response in
@@ -270,7 +323,7 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
             }
             fileQueue.async {
                 do {
-                    try Data(contents.utf8).write(to: destination, options: .atomic)
+                    try payload.write(to: destination, options: .atomic)
                     DispatchQueue.main.async { replyHandler(true, nil) }
                 } catch {
                     let detail = error.localizedDescription
@@ -389,18 +442,43 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         }
     }
 
+    private func runCanvasCommand(_ name: String, nativeFallback: Selector? = nil) {
+        window?.makeKeyAndOrderFront(nil)
+        webView?.evaluateJavaScript("window.ideaCanvasCommand ? window.ideaCanvasCommand('\(name)') : 'ignored'") { result, _ in
+            // Text fields keep their own undo history inside WebKit; page script cannot trigger it.
+            if let nativeFallback, result as? String == "native" {
+                NSApp.sendAction(nativeFallback, to: nil, from: nil)
+            }
+        }
+    }
+
+    @objc private func canvasUndo() { runCanvasCommand("undo", nativeFallback: Selector(("undo:"))) }
+    @objc private func canvasRedo() { runCanvasCommand("redo", nativeFallback: Selector(("redo:"))) }
+    @objc private func canvasExportPNG() { runCanvasCommand("export-png") }
+    @objc private func canvasExportSVG() { runCanvasCommand("export-svg") }
+    @objc private func canvasExportMarkdown() { runCanvasCommand("export-markdown") }
+    @objc private func canvasExportHTML() { runCanvasCommand("export-html") }
+    @objc private func canvasFit() { runCanvasCommand("fit") }
+    @objc private func canvasPalette() { runCanvasCommand("search") }
+
     private func installMenu() {
         let menu = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu(title: "想法画布")
         appMenu.addItem(withTitle: "关于想法画布", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "隐藏想法画布", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "退出想法画布", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         menu.addItem(appItem)
 
         let fileItem = NSMenuItem()
         let file = NSMenu(title: "文件")
+        file.addItem(withTitle: "导出 PNG 图片…", action: #selector(canvasExportPNG), keyEquivalent: "").target = self
+        file.addItem(withTitle: "导出 SVG 矢量图…", action: #selector(canvasExportSVG), keyEquivalent: "").target = self
+        file.addItem(withTitle: "导出 Markdown…", action: #selector(canvasExportMarkdown), keyEquivalent: "").target = self
+        file.addItem(withTitle: "导出可编辑 HTML…", action: #selector(canvasExportHTML), keyEquivalent: "").target = self
+        file.addItem(.separator())
         file.addItem(withTitle: "复制浏览器同步链接", action: #selector(copySyncLink), keyEquivalent: "").target = self
         let localAPIItem = NSMenuItem(title: "允许本机 AI / MCP 接入", action: #selector(toggleLocalAPI(_:)), keyEquivalent: "")
         localAPIItem.target = self
@@ -408,18 +486,47 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         file.addItem(localAPIItem)
         file.addItem(withTitle: "打开本地数据文件夹", action: #selector(openDataFolder), keyEquivalent: "").target = self
         file.addItem(withTitle: "打开历史备份", action: #selector(openBackupsFolder), keyEquivalent: "").target = self
+        file.addItem(.separator())
+        file.addItem(withTitle: "关闭窗口", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileItem.submenu = file
         menu.addItem(fileItem)
 
         let editItem = NSMenuItem()
         let edit = NSMenu(title: "编辑")
+        edit.addItem(withTitle: "撤销", action: #selector(canvasUndo), keyEquivalent: "z").target = self
+        let redo = NSMenuItem(title: "重做", action: #selector(canvasRedo), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        redo.target = self
+        edit.addItem(redo)
+        edit.addItem(.separator())
         edit.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         menu.addItem(editItem)
+
+        let viewItem = NSMenuItem()
+        let view = NSMenu(title: "显示")
+        view.addItem(withTitle: "搜索或执行命令", action: #selector(canvasPalette), keyEquivalent: "").target = self
+        view.addItem(withTitle: "查看全图", action: #selector(canvasFit), keyEquivalent: "").target = self
+        view.addItem(.separator())
+        let fullScreen = NSMenuItem(title: "进入全屏幕", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        fullScreen.keyEquivalentModifierMask = [.command, .control]
+        view.addItem(fullScreen)
+        viewItem.submenu = view
+        menu.addItem(viewItem)
+
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "窗口")
+        windowMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "缩放", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "前置全部窗口", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        windowItem.submenu = windowMenu
+        menu.addItem(windowItem)
         NSApp.mainMenu = menu
+        NSApp.windowsMenu = windowMenu
     }
 
     private func stopLaunching(message: String) {

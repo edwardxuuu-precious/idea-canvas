@@ -60,12 +60,19 @@ private struct DiskSnapshot {
     enum Tone: String, Decodable { case topic, idea, question, action, reference }
     enum EdgeKind: String, Decodable { case branch, link }
 
+    struct CardSource: Decodable, Equatable {
+        let label: String
+        let url: String?
+    }
+
     struct Card: Decodable, Equatable {
         let id: String
         let x, y, w, h: Double
         let tone: Tone
         let title, body: String
         let richBody: String?
+        let note: String?
+        let sources: [CardSource]?
         let style, branchStyle: CanvasJSON?
         let status, priority: String?
         let tags: [String]?
@@ -155,6 +162,27 @@ private struct DiskSnapshot {
                 if let subBoardId = card.subBoardId {
                     guard Self.validID(subBoardId) else {
                         throw DiskWorkspaceError("子画布标识无效。")
+                    }
+                }
+                if let note = card.note {
+                    guard note.utf8.count <= 16_000 else {
+                        throw DiskWorkspaceError("卡片备注长度超出限制。")
+                    }
+                }
+                if let sources = card.sources {
+                    guard sources.count <= 64 else {
+                        throw DiskWorkspaceError("卡片来源数量超出限制。")
+                    }
+                    for source in sources {
+                        let trimmedLabel = source.label.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmedLabel.isEmpty, trimmedLabel.utf8.count <= 600 else {
+                            throw DiskWorkspaceError("卡片来源名称无效。")
+                        }
+                        if let url = source.url {
+                            guard url.utf8.count <= 4096 else {
+                                throw DiskWorkspaceError("卡片来源链接超出限制。")
+                            }
+                        }
                     }
                 }
             }

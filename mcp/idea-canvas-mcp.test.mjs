@@ -30,7 +30,15 @@ test('offline CRUD, subtree guard, pre-deletion backup, and mirror sync work end
       {
         boardId: 'test-board',
         cards: [
-          { id: 'c1', parentId: 'home', title: '卡片一', body: '第一行\n[链接](https://example.com)', tone: 'action' },
+          {
+            id: 'c1',
+            parentId: 'home',
+            title: '卡片一',
+            body: '第一行\n[链接](https://example.com)',
+            note: '仅做边界说明',
+            sources: [{ label: '示例来源', url: 'https://source.example.org/doc' }],
+            tone: 'action',
+          },
           { id: 'c2', parentId: 'c1', title: '子卡二', body: '第二行', tone: 'reference' },
         ],
       },
@@ -43,9 +51,43 @@ test('offline CRUD, subtree guard, pre-deletion backup, and mirror sync work end
     expect(outline.outline[0].children[0].id).toBe('c1');
     expect(outline.outline[0].children[0].children[0].id).toBe('c2');
 
-    const cards = await runTool('canvas_get_cards', { boardId: 'test-board', query: 'example.com' }, cfg);
+    const cards = await runTool('canvas_get_cards', { boardId: 'test-board', query: 'source.example.org' }, cfg);
     expect(cards.count).toBe(1);
     expect(cards.cards[0].id).toBe('c1');
+    expect(cards.cards[0].note).toBe('仅做边界说明');
+    expect(cards.cards[0].sources).toEqual([{ label: '示例来源', url: 'https://source.example.org/doc' }]);
+
+    const diskAfterUpsert = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, '画布数据.json'), 'utf8'));
+    const c1Disk = diskAfterUpsert.boards[0].nodes.find((n) => n.id === 'c1');
+    const c2Disk = diskAfterUpsert.boards[0].nodes.find((n) => n.id === 'c2');
+    expect(c1Disk.richBody).toContain('<a href="https://example.com/"');
+    expect(c2Disk.richBody).toBeUndefined();
+
+    // Clearing note and sources via null / [] works
+    await runTool(
+      'canvas_upsert_cards',
+      { boardId: 'test-board', cards: [{ id: 'c1', note: null, sources: [] }] },
+      cfg,
+    );
+    const afterClear = await runTool('canvas_get_cards', { boardId: 'test-board', cardIds: ['c1'] }, cfg);
+    expect(afterClear.cards[0].note).toBeUndefined();
+    expect(afterClear.cards[0].sources).toBeUndefined();
+
+    // Restore provenance before mirror sync check
+    await runTool(
+      'canvas_upsert_cards',
+      {
+        boardId: 'test-board',
+        cards: [
+          {
+            id: 'c1',
+            note: '仅做边界说明',
+            sources: [{ label: '示例来源', url: 'https://source.example.org/doc' }],
+          },
+        ],
+      },
+      cfg,
+    );
 
     // Deleting non-leaf without deleteSubtree must throw
     await expect(runTool('canvas_delete_cards', { boardId: 'test-board', cardIds: ['c1'] }, cfg)).rejects.toThrow(

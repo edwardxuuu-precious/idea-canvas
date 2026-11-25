@@ -1,0 +1,75 @@
+:root {
+  --chrome-top: 14px;
+  --ink: #0f172a;
+  --ink-soft: #475569;
+  --muted: #64748b;
+  --green: #0f766e;
+  --green-dark: #115e59;
+  --green-light: color-mix(in srgb, var(--board-accent, var(--green)) 11%, transparent);
+  --paper: #ffffff;
+  --surface: #ffffff;
+  --glass: rgba(255, 255, 255, 0.86);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  --glass-hover: rgba(15, 23, 42, 0.055);
+  --border-subtle: rgba(15, 23, 42, 0.08);
+  --line: #e2e8f0;
+  --canvas: #f5f6f8;
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 8px 24px -4px rgba(15, 23, 42, 0.08);
+  --shadow-island: var(--glass-highlight), 0 2px 8px rgba(15, 23, 42, 0.05), 0 14px 34px -6px rgba(15, 23, 42, 0.12);
+  --surface-sub: #f1f5f9;
+  --kbd-bg: #f8fafc;
+  --kbd-border: #e2e8f0;
+  --card-divider: rgba(15, 23, 42, 0.07);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+:root[data-desktop="macos"]:not([data-fullscreen="true"]) {
+  --chrome-top: 30px;
+}
+:root[data-chrome="dark"] {
+  --ink: #f1f5f9;
+  --ink-soft: #cbd5e1;
+  --muted: #94a3b8;
+  --green: #10b981;
+  --green-dark: #059669;
+  --green-light: color-mix(in srgb, var(--board-accent, var(--green)) 18%, transparent);
+  --paper: #191d24;
+  --surface: #1d212b;
+  --glass: rgba(24, 27, 34, 0.86);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --glass-hover: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.10);
+  --line: #2a303c;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 12px 30px rgba(0, 0, 0, 0.45);
+  --shadow-island: var(--glass-highlight), 0 0 0 1px rgba(255, 255, 255, 0.07), 0 16px 38px rgba(0, 0, 0, 0.55);
+  --surface-sub: #222730;
+  --kbd-bg: #242933;
+  --kbd-border: #333a47;
+  --card-divider: rgba(255, 255, 255, 0.09);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; height: 100vh; height: 100dvh; overflow: hidden; background: var(--canvas); }
+button, input, textarea { font: inherit; color: inherit; }
+button { border: 0; background: none; cursor: pointer; touch-action: manipulation; }
+button:disabled { opacity: .36; cursor: default; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--board-accent, var(--green)); outline-offset: 2px;
+}
+svg { display: block; }
+.icon { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.icon-library { position: absolute; width: 0; height: 0; overflow: hidden; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.16); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(15, 23, 42, 0.28); }
+:root[data-chrome="dark"] ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); }
+:root[data-chrome="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.30); }
+@media (prefers-reduced-motion: no-preference) {
+  .btn:active:not(:disabled), .icon-btn:active:not(:disabled), button.card-chip:active, .tone-btn:active, .inspector-theme-card:active {
+    transform: scale(0.96);
+  }
+}
+

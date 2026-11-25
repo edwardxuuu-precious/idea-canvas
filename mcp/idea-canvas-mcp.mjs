@@ -59,12 +59,74 @@ function escapeHtml(text) {
     .replaceAll('"', '&quot;');
 }
 
+function safeLinkHref(url) {
+  if (typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderInlineLinksHtml(text) {
+  const linkRe = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|([^（()\n；·，。：]+?)（(https?:\/\/[^\s）<>"']+)）/g;
+  let out = '';
+  let last = 0;
+  for (const m of text.matchAll(linkRe)) {
+    out += escapeHtml(text.slice(last, m.index));
+    const label = (m[1] || m[3] || '').trim();
+    const href = safeLinkHref(m[2] || m[4]);
+    if (href && label) {
+      out += `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+    } else {
+      out += escapeHtml(m[0]);
+    }
+    last = m.index + m[0].length;
+  }
+  return out + escapeHtml(text.slice(last));
+}
+
 export function makeRichBody(body) {
   if (!body) return undefined;
-  return body
-    .split('\n')
-    .map((line) => `<p>${escapeHtml(line)}</p>`)
-    .join('');
+  const hasInlineLink =
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|([^（()\n；·，。：]+?)（(https?:\/\/[^\s）<>"']+)）/.test(body);
+  if (!hasInlineLink) return undefined;
+  const lines = body.split('\n');
+  const checklistRe = /^(\s*[-*]\s*\[)([ xX✓])(\]\s+)(.*)$/;
+  const out = [];
+  let inList = false;
+  for (const line of lines) {
+    const cm = line.match(checklistRe);
+    if (cm) {
+      if (!inList) {
+        out.push('<ul>');
+        inList = true;
+      }
+      const done = cm[2] === ' ' ? 'false' : 'true';
+      out.push(`<li data-done="${done}">${renderInlineLinksHtml(cm[4])}</li>`);
+    } else {
+      if (inList) {
+        out.push('</ul>');
+        inList = false;
+      }
+      out.push(`<p>${renderInlineLinksHtml(line)}</p>`);
+    }
+  }
+  if (inList) out.push('</ul>');
+  return out.join('');
+}
+
+function estimateCardHeight(title, body, hasMeta = false) {
+  const wrapCount = (text, perLine) =>
+    (text || '')
+      .split('\n')
+      .reduce((sum, line) => sum + Math.max(1, Math.ceil([...line.trim()].length / perLine)), 0);
+  const titleLines = title?.trim() ? wrapCount(title, 14) : 1;
+  const bodyLines = body?.trim() ? wrapCount(body, 19) : 0;
+  return Math.max(96, 54 + titleLines * 24 + bodyLines * 23 + (hasMeta ? 34 : 0));
 }
 
 export function isValidId(value) {
@@ -133,6 +195,25 @@ export function validateWorkspace(space, label = '画布工作区') {
       }
       if (card.subBoardId !== undefined && !isValidId(card.subBoardId)) {
         throw new CanvasToolError(`${label}子画布 ID 无效：${card.id}`, 'invalid_workspace');
+      }
+      if (card.note !== undefined && typeof card.note !== 'string') {
+        throw new CanvasToolError(`${label}卡片备注无效：${card.id}`, 'invalid_workspace');
+      }
+      if (card.sources !== undefined) {
+        if (!Array.isArray(card.sources)) {
+          throw new CanvasToolError(`${label}卡片来源列表无效：${card.id}`, 'invalid_workspace');
+        }
+        for (const src of card.sources) {
+          if (
+            !src ||
+            typeof src !== 'object' ||
+            typeof src.label !== 'string' ||
+            !src.label.trim() ||
+            (src.url !== undefined && typeof src.url !== 'string')
+          ) {
+            throw new CanvasToolError(`${label}卡片来源项无效：${card.id}`, 'invalid_workspace');
+          }
+        }
       }
     }
     const edgeIds = new Set();
@@ -692,7 +773,8 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
         if (args.status && n.status !== args.status) continue;
         if (args.tone && n.tone !== args.tone) continue;
         if (q) {
-          const hay = `${n.id}\n${n.title}\n${n.body}\n${(n.tags || []).join(' ')}`.toLowerCase();
+          const sourceText = (n.sources || []).map((s) => `${s.label} ${s.url || ''}`).join(' ');
+          const hay = `${n.id}\n${n.title}\n${n.body}\n${n.note || ''}\n${sourceText}\n${(n.tags || []).join(' ')}`.toLowerCase();
           if (!hay.includes(q)) continue;
         }
         matched.push({
@@ -702,6 +784,8 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
           tone: n.tone,
           parentId: parentOf.get(n.id) ?? null,
           childIds: children.get(n.id) || [],
+          ...(n.note ? { note: n.note } : {}),
+          ...(n.sources?.length ? { sources: n.sources } : {}),
           ...(n.status ? { status: n.status } : {}),
           ...(n.priority ? { priority: n.priority } : {}),
           ...(n.tags?.length ? { tags: n.tags } : {}),
@@ -816,12 +900,19 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
                 }
               }
             }
+            const hasMeta =
+              Boolean(spec.status) ||
+              Boolean(spec.priority) ||
+              Boolean(spec.tags?.length) ||
+              Boolean(spec.pinned) ||
+              Boolean(spec.note && String(spec.note).trim()) ||
+              Boolean(Array.isArray(spec.sources) && spec.sources.length);
             node = {
               id: spec.id,
               x,
               y,
               w: typeof spec.w === 'number' ? spec.w : 310,
-              h: typeof spec.h === 'number' ? spec.h : Math.max(120, 72 + lines * 30),
+              h: typeof spec.h === 'number' ? spec.h : estimateCardHeight(title, body, hasMeta),
               tone,
               title,
               body,
@@ -849,6 +940,26 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
             if (typeof spec.w === 'number') node.w = spec.w;
             if (typeof spec.h === 'number') node.h = spec.h;
             updated.push(node.id);
+          }
+
+          if (spec.note !== undefined) {
+            if (spec.note === null || !String(spec.note).trim()) delete node.note;
+            else node.note = String(spec.note).trim();
+          }
+          if (spec.sources !== undefined) {
+            if (spec.sources === null) {
+              delete node.sources;
+            } else {
+              if (!Array.isArray(spec.sources)) throw new CanvasToolError('sources 必须是数组。', 'invalid_args');
+              const cleaned = spec.sources
+                .filter((s) => s && typeof s.label === 'string' && s.label.trim())
+                .map((s) => ({
+                  label: s.label.trim(),
+                  ...(typeof s.url === 'string' && s.url.trim() ? { url: s.url.trim() } : {}),
+                }));
+              if (cleaned.length === 0) delete node.sources;
+              else node.sources = cleaned;
+            }
           }
 
           if (spec.status !== undefined) {
@@ -1147,6 +1258,17 @@ export const TOOLS = [
               id: { type: 'string', description: '卡片唯一 ID（1-128 位字母数字_-）' },
               title: { type: 'string' },
               body: { type: 'string' },
+              note: { type: ['string', 'null'], description: '默认隐藏的补充说明或边界备注（点卡片底部胶囊展开）' },
+              sources: {
+                type: ['array', 'null'],
+                description: '默认隐藏的内容来源列表（点卡片底部胶囊展开）',
+                items: {
+                  type: 'object',
+                  required: ['label'],
+                  properties: { label: { type: 'string' }, url: { type: 'string' } },
+                  additionalProperties: false,
+                },
+              },
               tone: { type: 'string', enum: ['topic', 'idea', 'question', 'action', 'reference'] },
               parentId: { type: 'string', description: '挂载到此父卡片下（自动创建或移动 branch 连线）' },
               afterSiblingId: { type: 'string', description: '排在同级某张卡片之后' },

@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<!-- LOCAL_CANVAS_SYNC -->
+<title>想法画布</title>
+<style>
+<!-- @include styles/01-tokens.css -->
+<!-- @include styles/02-chrome.css -->
+<!-- @include styles/03-cards.css -->
+<!-- @include styles/04-dock-and-dialogs.css -->
+<!-- @include styles/05-panels.css -->
+<!-- @include styles/06-editing-and-menus.css -->
+</style>
+</head>
+<body>
+<svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-brand" viewBox="0 0 24 24"><path d="M7.5 12h4.6c2.2 0 2.4-5 4.8-5M11.9 12c2.3 0 2.7 5 5 5"/><circle cx="5" cy="12" r="2.3"/><circle cx="19" cy="6.8" r="2"/><circle cx="19" cy="17.2" r="2"/></symbol>
+  <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7 9h4m-4 5h6m4-5h.01"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m16 16 4 4"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M13.5 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9.5L13.5 3Z"/><path d="M13 3v6.5h7M8 13.5h8m-8 4h7"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-pointer" viewBox="0 0 24 24"><path d="m5 3 14 9-6.4 1.5L9.5 20 5 3Z"/></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 12.7V6.5a1.4 1.4 0 0 1 2.8 0v3.7-6.1a1.4 1.4 0 1 1 2.8 0v6.3-4.9a1.4 1.4 0 0 1 2.8 0v5.2-3.6a1.4 1.4 0 1 1 2.8 0v6.6c0 4.4-2.3 7.2-6 7.2h-1c-2.6 0-4-1.2-5.1-2.7l-3.3-4.5a1.5 1.5 0 0 1 2.2-2Z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="m14 6 2.3-2.3a3.55 3.55 0 1 1 5 5L16 14a3.6 3.6 0 0 1-5 0m-1 4-2.3 2.3a3.55 3.55 0 1 1-5-5L8 10a3.6 3.6 0 0 1 5 0"/></symbol>
+  <symbol id="i-arrange" viewBox="0 0 24 24"><rect x="2.5" y="9" width="6" height="6" rx="1.2"/><rect x="15.5" y="3" width="6" height="5" rx="1.2"/><rect x="15.5" y="16" width="6" height="5" rx="1.2"/><path d="M8.5 12H12m0-6.5v13m0-13h3.5M12 18.5h3.5"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="8.5" r="1.5"/><path d="m4 17 5-4 3 2 4-5 5 5"/></symbol>
+  <symbol id="i-bullets" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.1M4 12h.1M4 18h.1"/></symbol>
+  <symbol id="i-numbers" viewBox="0 0 24 24"><path d="M10 6h10m-10 6h10m-10 6h10M4 4l1-1v5M3.5 13a1.5 1.5 0 0 1 3 0l-3 4h3"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 5 4 10l5 5m-5-5h9a6 6 0 0 1 6 6v2"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 5 5 5-5 5m5-5h-9a6 6 0 0 0-6 6v2"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M9 4H5a1 1 0 0 0-1 1v4m11-5h4a1 1 0 0 1 1 1v4M4 15v4a1 1 0 0 0 1 1h4m11-5v4a1 1 0 0 1-1 1h-4"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h4v5H7zm8-2h3v3h-3z"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.7"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.8 2.1c-1.1.7-1.4 1.4-1.4 2.1m0 2.8h.01"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="m13.6 6.6 3.8 3.8M4 20l4.7-1 10.5-10.5a2.7 2.7 0 0 0-3.8-3.8L4.9 15.2Z"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><path d="M6 5v9a4 4 0 0 0 4 4h9m-3-3 3 3-3 3M6 10h6m3-6v6m-3-3h6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-.7 12H6.7L6 7m4 4v5m4-5v5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.2 4.2L19 6.5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3m-4 4 4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+  <symbol id="i-topic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.4"/><circle cx="12" cy="12" r="3.2"/><path d="m14.4 9.6 4.5-4.5"/></symbol>
+  <symbol id="i-idea" viewBox="0 0 24 24"><path d="M9 19h6m-5 2h4M8.6 15.2a5.4 5.4 0 1 1 6.8 0c-.5.4-.7.7-.7 1.8h-5.4c0-1.1-.2-1.4-.7-1.8Z"/></symbol>
+  <symbol id="i-question" viewBox="0 0 24 24"><path d="M8.5 8.6a3.6 3.6 0 1 1 5.8 2.7c-1.6 1.1-2.3 2-2.3 3.6m0 4.4h.01"/></symbol>
+  <symbol id="i-action" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+  <symbol id="i-reference" viewBox="0 0 24 24"><path d="M6 5h12a1 1 0 0 1 1 1v14l-7-4-7 4V6a1 1 0 0 1 1-1Z"/></symbol>
+  <symbol id="i-style" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><path d="M9 5v4m6 1v4m-5 1v4"/></symbol>
+  <symbol id="i-view" viewBox="0 0 24 24"><path d="M3 12c4-6 14-6 18 0-4 6-14 6-18 0Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+  <symbol id="i-outline" viewBox="0 0 24 24"><path d="M5 6h14m-11 6h11m-8 6h8"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6m-5 0v6l-3 4v2h10v-2l-3-4V4m-2 12v5"/></symbol>
+  <symbol id="i-frame" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2" stroke-dasharray="3 2"/><path d="M8 9h8m-8 4h5"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5m-5 11h5v-5m-11 5H4v-5"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-resize" viewBox="0 0 24 24"><path d="M5 12h14m-10-4-4 4 4 4m6-8 4 4-4 4"/></symbol>
+  <symbol id="i-checklist" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="6" height="6" rx="1.2"/><path d="m5 7.5 1.1 1.1 2-2.1M12.5 7.5h8M3.5 14.5h6v6h-6zm9 3h8"/></symbol>
+  <symbol id="i-subboard" viewBox="0 0 24 24"><rect x="3" y="4" width="13" height="11" rx="2"/><path d="M8 19h11a2 2 0 0 0 2-2V9"/><path d="M12 11l6-6m-4 0h4v4"/></symbol>
+  <symbol id="i-markdown" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M6.5 15V9l2.5 3 2.5-3v6m4.5-6v6m-2-2 2 2 2-2"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M15 4h5v5m0-5-6 6M9 20H4v-5m0 5 6-6"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 6 9 12l6 6"/></symbol>
+  <symbol id="i-theme" viewBox="0 0 24 24"><path d="M12 3a6.5 6.5 0 0 0 8.5 8.5A8.5 8.5 0 1 1 12 3Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.4m0 13.6v2.4M4.9 4.9l1.7 1.7m10.8 10.8 1.7 1.7M2.8 12h2.4m13.6 0h2.4M4.9 19.1l1.7-1.7m10.8-10.8 1.7-1.7"/></symbol>
+  <symbol id="i-source" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11 4.93"/><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L13 19.07"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-align" viewBox="0 0 24 24"><path d="M4 4v16M8 8h10M8 15h6"/></symbol>
+  <symbol id="i-align-left" viewBox="0 0 24 24"><path d="M4 4v16"/><rect x="7" y="6" width="12" height="4" rx="1"/><rect x="7" y="14" width="7" height="4" rx="1"/></symbol>
+  <symbol id="i-align-center-x" viewBox="0 0 24 24"><path d="M12 3v18"/><rect x="5" y="6" width="14" height="4" rx="1"/><rect x="8" y="14" width="8" height="4" rx="1"/></symbol>
+  <symbol id="i-align-right" viewBox="0 0 24 24"><path d="M20 4v16"/><rect x="5" y="6" width="12" height="4" rx="1"/><rect x="10" y="14" width="7" height="4" rx="1"/></symbol>
+  <symbol id="i-align-top" viewBox="0 0 24 24"><path d="M4 4h16"/><rect x="6" y="7" width="4" height="12" rx="1"/><rect x="14" y="7" width="4" height="7" rx="1"/></symbol>
+  <symbol id="i-align-center-y" viewBox="0 0 24 24"><path d="M3 12h18"/><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="8" width="4" height="8" rx="1"/></symbol>
+  <symbol id="i-align-bottom" viewBox="0 0 24 24"><path d="M4 20h16"/><rect x="6" y="5" width="4" height="12" rx="1"/><rect x="14" y="10" width="4" height="7" rx="1"/></symbol>
+  <symbol id="i-distribute-x" viewBox="0 0 24 24"><path d="M3 4v16M21 4v16"/><rect x="9" y="7" width="6" height="10" rx="1"/></symbol>
+  <symbol id="i-distribute-y" viewBox="0 0 24 24"><path d="M4 3h16M4 21h16"/><rect x="7" y="9" width="10" height="6" rx="1"/></symbol>
+  <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3Z"/></symbol>
+</svg>
+
+<header class="bar">
+  <div class="bar-left">
+    <div class="brand"><span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-brand"/></svg></span><span>想法画布</span></div>
+    <div class="bar-separator" aria-hidden="true"></div>
+    <button type="button" id="board-toggle" class="board-trigger" data-action="boards" aria-expanded="false" aria-controls="board-menu" title="切换或管理画布">
+      <svg class="icon" aria-hidden="true"><use href="#i-board"/></svg><span id="board-title"></span><svg class="icon chevron" aria-hidden="true"><use href="#i-chevron"/></svg>
+    </button>
+    <nav id="board-breadcrumbs" class="breadcrumbs" aria-label="画布层级" hidden></nav>
+    <span class="status" id="storage-status" role="status" title="内容保存在当前浏览器。换浏览器或移动文件前可导出可编辑 HTML。"><span class="status-dot" aria-hidden="true"></span><span class="status-label" id="storage-label">正在打开</span></span>
+  </div>
+  <button type="button" class="search-trigger" id="search-toggle" data-action="search" aria-label="搜索画布、卡片或执行命令" aria-expanded="false" aria-controls="search-panel">
+    <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span>搜索或执行命令</span><kbd class="shortcut" data-mod>K</kbd>
+  </button>
+  <div class="bar-right">
+    <button type="button" class="btn arrange-btn" data-action="arrange" aria-label="布局" aria-controls="layout-panel" aria-expanded="false" title="选择布局并预览"><svg class="icon" aria-hidden="true"><use href="#i-arrange"/></svg><span>布局</span></button>
+    <button type="button" class="btn quick-arrange-btn" data-action="auto-arrange" title="按当前布局重新整理整张画布">自动整理</button>
+    <div class="bar-separator" aria-hidden="true"></div>
+    <button type="button" class="icon-btn board-extra" data-action="outline" aria-label="大纲" title="大纲" aria-controls="views-panel" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-outline"/></svg></button>
+    <button type="button" class="icon-btn board-extra" data-action="view-options" aria-label="视图" title="视图、筛选与分区" aria-controls="views-panel" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-view"/></svg></button>
+    <button type="button" class="btn btn-quiet board-extra" data-action="inspector" aria-label="样式" aria-controls="inspector-panel" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-style"/></svg><span>样式</span></button>
+    <div class="bar-separator" aria-hidden="true"></div>
+    <button type="button" class="icon-btn" id="theme-toggle" data-action="toggle-dark" aria-label="切换浅色/深色外观" title="切换浅色/深色外观" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-theme"/></svg></button>
+    <button type="button" class="btn btn-quiet" id="file-toggle" data-action="files" aria-label="文件和导出" aria-expanded="false" aria-controls="file-menu"><svg class="icon" aria-hidden="true"><use href="#i-file"/></svg><span>文件</span><svg class="icon chevron" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+  </div>
+
+  <section class="popover" id="board-menu" aria-label="画布列表" hidden>
+    <div class="menu-title">我的画布</div>
+    <div id="board-list"></div>
+    <div class="menu-divider"></div>
+    <button type="button" class="menu-item" data-action="board-new"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span>新建空白画布</span></button>
+    <button type="button" class="menu-item" data-action="board-rename"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg><span>重命名当前画布</span></button>
+    <button type="button" class="menu-item btn-danger" data-action="board-delete"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg><span>删除当前画布</span></button>
+  </section>
+
+  <div id="palette-backdrop" class="palette-backdrop" hidden></div>
+  <section class="popover search-panel" id="search-panel" aria-label="搜索卡片" hidden>
+    <div class="search-box"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input id="search-input" type="search" inputmode="search" placeholder="搜索画布和卡片，输入 &gt; 只看命令" aria-label="搜索词或命令" autocomplete="off"><kbd>Esc</kbd></div>
+    <div id="search-results" role="listbox" aria-label="搜索结果"></div>
+    <div class="search-footer" aria-hidden="true"><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>↵</kbd> 打开</span><span><kbd>&gt;</kbd> 仅看命令</span><span><kbd>Esc</kbd> 关闭</span></div>
+  </section>
+
+  <section class="popover" id="file-menu" aria-label="文件操作" hidden>
+    <div class="menu-title">所有画布</div>
+    <button type="button" class="menu-item" data-action="export-html"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span>导出可编辑 HTML</span></button>
+    <button type="button" class="menu-item" data-action="export-json"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span>导出 JSON</span></button>
+    <button type="button" class="menu-item" data-action="import-json"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span>导入 JSON 为新画布</span></button>
+    <div class="menu-divider"></div>
+    <div class="menu-title">当前画布或所选分支</div>
+    <button type="button" class="menu-item" data-action="export-png"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span>导出 PNG 图片</span></button>
+    <button type="button" class="menu-item" data-action="export-svg"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span>导出 SVG 矢量图</span></button>
+    <button type="button" class="menu-item" data-action="export-markdown"><svg class="icon" aria-hidden="true"><use href="#i-markdown"/></svg><span>导出 Markdown</span></button>
+    <div class="menu-divider" id="desktop-file-divider" hidden></div>
+    <button type="button" class="menu-item" data-action="data-folder" hidden><svg class="icon" aria-hidden="true"><use href="#i-board"/></svg><span>打开本地数据文件夹</span></button>
+    <button type="button" class="menu-item" data-action="backups-folder" hidden><svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg><span>打开历史备份</span></button>
+    <button type="button" class="menu-item" data-action="sync-link" hidden><svg class="icon" aria-hidden="true"><use href="#i-link"/></svg><span>复制浏览器同步链接</span></button>
+    <input id="file-input" type="file" accept=".json,application/json" hidden>
+  </section>
+</header>
+
+<main class="stage" aria-label="想法画布工作区">
+  <div id="viewport" tabindex="0" aria-label="画布。双击空白新建卡片，按空格拖动平移。">
+    <div id="world">
+      <div id="frames"></div>
+      <svg id="connections" xmlns="http://www.w3.org/2000/svg" aria-label="卡片连线">
+        <defs id="edge-markers">
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M2 1.8L8.2 5L2 8.2" fill="none" stroke="#64748b" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></marker>
+          <marker id="arrow-selected" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M2 1.8L8.2 5L2 8.2" fill="none" stroke="#0f766e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+        </defs>
+        <g id="layout-guide-layer" aria-hidden="true"></g>
+        <g id="matrix-drop-layer" aria-hidden="true"></g>
+        <g id="edge-layer"></g>
+        <g id="alignment-layer" aria-hidden="true"></g>
+        <path id="edge-preview" class="edge-preview" hidden></path>
+      </svg>
+      <div id="cards"></div>
+    </div>
+    <div id="marquee" class="marquee" hidden></div>
+  </div>
+
+  <div class="rail" role="toolbar" aria-label="画布工具">
+    <button type="button" class="icon-btn" data-action="mode-select" title="选择 (V)" aria-label="选择" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#i-pointer"/></svg></button>
+    <button type="button" class="icon-btn" data-action="mode-hand" title="平移 (H 或按住空格)" aria-label="平移" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-hand"/></svg></button>
+    <button type="button" class="icon-btn" data-action="mode-link" title="连线 (C)" aria-label="连线" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-link"/></svg></button>
+    <div class="rail-divider" aria-hidden="true"></div>
+    <button type="button" class="btn btn-primary" data-action="new-card" aria-label="新建卡片" title="新建卡片 (N)"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span>新建卡片</span></button>
+    <button type="button" class="icon-btn" data-action="dock-frame" title="新建分区（框选卡片或创建空白分区）" aria-label="新建分区"><svg class="icon" aria-hidden="true"><use href="#i-frame"/></svg></button>
+    <div class="rail-divider" aria-hidden="true"></div>
+    <button type="button" class="icon-btn" data-action="undo" title="撤销" aria-label="撤销" disabled><svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg></button>
+    <button type="button" class="icon-btn" data-action="redo" title="重做" aria-label="重做" disabled><svg class="icon" aria-hidden="true"><use href="#i-redo"/></svg></button>
+  </div>
+
+  <div id="sample-hint" class="sample" hidden>
+    <span class="sample-label"><svg class="icon" aria-hidden="true"><use href="#i-board"/></svg>入门示例</span>
+    <button type="button" class="sample-action" data-action="board-new">新建空白画布</button>
+  </div>
+
+  <aside id="matrix-key" class="matrix-key" aria-label="矩阵分类方式" hidden>
+    <strong>分类矩阵</strong>
+    <p id="matrix-axes"></p>
+    <p id="matrix-example" hidden></p>
+    <p id="matrix-drop-hint" aria-live="polite" hidden></p>
+  </aside>
+
+  <div id="empty-state" class="empty" hidden>
+    <div class="empty-glyph"><svg class="icon" aria-hidden="true"><use href="#i-idea"/></svg></div>
+    <h2>写下第一个想法</h2>
+    <p>双击空白处，或点击下方按钮。</p>
+    <button type="button" class="btn btn-primary" data-action="new-card"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>新建卡片</button>
+  </div>
+
+  <div class="stage-meta">
+    <button type="button" class="icon-btn help-btn" data-action="help" title="操作指南" aria-label="操作指南"><svg class="icon" aria-hidden="true"><use href="#i-help"/></svg></button>
+    <span id="counts"></span>
+  </div>
+
+  <div class="tip" id="idle-tip"><span>双击空白新建</span><i class="tip-divider" aria-hidden="true"></i><span><kbd>空格</kbd> + 拖动平移</span></div>
+  <div class="tip link-tip" id="link-tip" aria-live="polite" hidden></div>
+  <section class="popover card-source-popover" id="card-source-popover" role="dialog" aria-label="来源与补充说明" hidden></section>
+  <div class="selection-tools" id="selection-tools" role="toolbar" aria-label="所选项目操作" hidden>
+    <span class="selected-count" id="selected-count" hidden></span>
+    <div class="selection-tones" id="selection-tones" role="group" aria-label="快速切换卡片类型"></div>
+    <span class="selection-divider" aria-hidden="true"></span>
+    <button type="button" class="icon-btn" data-action="edit-selected" title="编辑 (E)" aria-label="编辑"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button>
+    <button type="button" class="icon-btn" data-action="branch-selected" title="添加分支 (Tab)" aria-label="添加分支"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg></button>
+    <button type="button" class="icon-btn" data-action="focus-branch" title="聚焦分支" aria-label="聚焦分支"><svg class="icon" aria-hidden="true"><use href="#i-target"/></svg></button>
+    <button type="button" class="icon-btn" id="align-menu-btn" data-action="align-menu" title="对齐和分布" aria-label="对齐和分布" aria-expanded="false" aria-controls="align-popover" hidden><svg class="icon" aria-hidden="true"><use href="#i-align"/></svg></button>
+    <button type="button" class="icon-btn" id="selection-more-btn" data-action="selection-more" title="更多操作" aria-label="更多操作" aria-expanded="false" aria-controls="selection-more-popover"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button>
+    <button type="button" class="icon-btn btn-danger" data-action="remove" title="删除选中项目 (Delete)" aria-label="删除选中项目"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>
+  </div>
+  <section class="popover selection-subpopover" id="align-popover" role="menu" aria-label="对齐和分布" hidden>
+    <div class="menu-title">对齐所选卡片</div>
+    <div class="align-grid">
+      <button type="button" class="menu-item" role="menuitem" data-align-cmd="left"><svg class="icon" aria-hidden="true"><use href="#i-align-left"/></svg><span>左对齐</span></button>
+      <button type="button" class="menu-item" role="menuitem" data-align-cmd="top"><svg class="icon" aria-hidden="true"><use href="#i-align-top"/></svg><span>顶端对齐</span></button>
+      <button type="button" class="menu-item" role="menuitem" data-align-cmd="center-x"><svg class="icon" aria-hidden="true"><use href="#i-align-center-x"/></svg><span>水平居中</span></button>
+      <button type="button" class="menu-item" role="menuitem" data-align-cmd="center-y"><svg class="icon" aria-hidden="true"><use href="#i-align-center-y"/></svg><span>垂直居中</span></button>
+      <button type="button" class="menu-item" role="menuitem" data-align-cmd="right"><svg class="icon" aria-hidden="true"><use href="#i-align-right"/></svg><span>右对齐</span></button>
+      <button type="button" class="menu-item" role="menuitem" data-align-cmd="bottom"><svg class="icon" aria-hidden="true"><use href="#i-align-bottom"/></svg><span>底端对齐</span></button>
+      <button type="button" class="menu-item" role="menuitem" data-align-cmd="distribute-x"><svg class="icon" aria-hidden="true"><use href="#i-distribute-x"/></svg><span>水平等距</span></button>
+      <button type="button" class="menu-item" role="menuitem" data-align-cmd="distribute-y"><svg class="icon" aria-hidden="true"><use href="#i-distribute-y"/></svg><span>垂直等距</span></button>
+    </div>
+  </section>
+  <section class="popover selection-subpopover" id="selection-more-popover" role="menu" aria-label="更多卡片操作" hidden>
+    <button type="button" class="menu-item" role="menuitem" data-action="pin-layout" title="整理时固定位置" aria-label="整理时固定位置" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg><span>整理时固定位置</span></button>
+    <button type="button" class="menu-item" role="menuitem" data-action="branch-layout" title="整理所选分支" aria-label="整理所选分支"><svg class="icon" aria-hidden="true"><use href="#i-arrange"/></svg><span>整理所选分支</span></button>
+    <button type="button" class="menu-item" role="menuitem" data-action="frame-add" title="建立分区" aria-label="建立分区"><svg class="icon" aria-hidden="true"><use href="#i-frame"/></svg><span>建立分区</span></button>
+    <button type="button" class="menu-item" role="menuitem" data-action="extract-subboard" title="提取为子画布" aria-label="提取为子画布"><svg class="icon" aria-hidden="true"><use href="#i-subboard"/></svg><span>提取为子画布</span></button>
+    <button type="button" class="menu-item" role="menuitem" data-action="copy-markdown" title="复制为结构化 Markdown" aria-label="复制为 Markdown"><svg class="icon" aria-hidden="true"><use href="#i-markdown"/></svg><span>复制为 Markdown</span><kbd data-mod>⇧C</kbd></button>
+    <button type="button" class="menu-item" role="menuitem" data-action="duplicate" title="复制选中卡片" aria-label="复制选中卡片"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span>复制卡片</span></button>
+  </section>
+
+  <nav class="nav" aria-label="视图导航">
+    <div class="panel" id="map-panel">
+      <button type="button" class="icon-btn map-close" data-action="toggle-map" aria-label="隐藏小地图" title="隐藏小地图"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <canvas id="minimap" aria-label="小地图，点击跳转"></canvas>
+    </div>
+    <div class="float-controls">
+      <button type="button" class="icon-btn" id="open-map" data-action="toggle-map" title="显示小地图" aria-label="显示小地图" hidden><svg class="icon" aria-hidden="true"><use href="#i-map"/></svg></button>
+      <button type="button" class="icon-btn" data-action="zoom-out" title="缩小" aria-label="缩小"><svg class="icon" aria-hidden="true"><use href="#i-minus"/></svg></button>
+      <button type="button" id="zoom-value" class="zoom-value" data-action="zoom-reset" title="恢复到 100%" aria-label="恢复到 100%">100%</button>
+      <button type="button" class="icon-btn" data-action="zoom-in" title="放大" aria-label="放大"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+      <div class="nav-divider" aria-hidden="true"></div>
+      <button type="button" class="icon-btn" data-action="fit" title="查看全图 (F)" aria-label="查看全图"><svg class="icon" aria-hidden="true"><use href="#i-fit"/></svg></button>
+    </div>
+  </nav>
+
+  <aside id="layout-panel" class="feature-drawer layout-panel" aria-label="布局" hidden>
+    <div class="feature-head"><h2>布局</h2><button type="button" id="layout-close" class="icon-btn" aria-label="关闭布局" title="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="layout-content">
+      <label class="feature-field">整理范围 <select id="layout-scope"><option value="board">整张画布</option><option value="branch">所选分支</option><option value="selection">所选节点</option></select></label>
+      <div id="layout-modes" class="layout-modes" role="group" aria-label="布局样式"></div>
+      <label class="feature-field">中心主题 <select id="layout-root"></select></label>
+      <fieldset id="layout-matrix" class="layout-matrix" hidden><legend>矩阵轴</legend>
+        <label>行 <select id="layout-rows"><option value="status">状态</option><option value="tone">卡片类型</option><option value="priority">优先级</option></select></label>
+        <label>列 <select id="layout-columns"><option value="status">状态</option><option value="tone">卡片类型</option><option value="priority">优先级</option></select></label>
+      </fieldset>
+      <div id="layout-density" class="layout-density" role="group" aria-label="排版疏密">
+        <button type="button" data-layout-density="compact">紧凑</button><button type="button" data-layout-density="standard">标准</button><button type="button" data-layout-density="spacious">舒展</button>
+      </div>
+      <label class="feature-field gap-field">同级间距 <input id="layout-node-gap" type="range" min="8" max="240" step="1"><output id="layout-node-gap-value"></output></label>
+      <label class="feature-field gap-field">层间距 <input id="layout-level-gap" type="range" min="16" max="360" step="1"><output id="layout-level-gap-value"></output></label>
+      <p id="layout-hint" role="status"></p>
+    </div>
+    <div class="layout-foot"><button type="button" id="layout-cancel" class="btn btn-outline">取消</button><button type="button" id="layout-apply" class="btn btn-primary">应用布局</button></div>
+  </aside>
+
+<aside id="inspector-panel" class="inspector-panel" aria-labelledby="inspector-heading" hidden>
+  <header class="inspector-header">
+    <div>
+      <h2 id="inspector-heading">样式与状态</h2>
+      <p id="inspector-scope"></p>
+    </div>
+    <button type="button" class="icon-btn" data-inspector-close aria-label="关闭样式与状态面板" title="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+  </header>
+  <div class="inspector-tabs" role="tablist" aria-label="样式与状态范围">
+    <button type="button" role="tab" id="inspector-tab-board" data-inspector-tab="board" aria-controls="inspector-body">画布</button>
+    <button type="button" role="tab" id="inspector-tab-card" data-inspector-tab="card" aria-controls="inspector-body">卡片</button>
+    <button type="button" role="tab" id="inspector-tab-branch" data-inspector-tab="branch" aria-controls="inspector-body">分支</button>
+    <button type="button" role="tab" id="inspector-tab-link" data-inspector-tab="link" aria-controls="inspector-body">连线</button>
+    <button type="button" role="tab" id="inspector-tab-state" data-inspector-tab="state" aria-controls="inspector-body">状态</button>
+  </div>
+  <div class="inspector-body" id="inspector-body" role="tabpanel" tabindex="0" aria-labelledby="inspector-tab-board"></div>
+</aside>
+<aside id="views-panel" class="canvas-views" aria-label="视图和大纲" hidden>
+  <div class="canvas-views-head">
+    <h2>视图</h2>
+    <button type="button" class="icon-btn" data-view-action="close" title="关闭视图面板" aria-label="关闭视图面板"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+  </div>
+  <div class="canvas-view-tabs" role="tablist" aria-label="视图工具">
+    <button type="button" id="view-tab-view" data-view-tab="view" role="tab" aria-controls="view-read" aria-selected="true">阅读</button>
+    <button type="button" id="view-tab-outline" data-view-tab="outline" role="tab" aria-controls="view-outline" aria-selected="false">大纲</button>
+    <button type="button" id="view-tab-frames" data-view-tab="frames" role="tab" aria-controls="view-frames" aria-selected="false">分区</button>
+  </div>
+  <div class="canvas-view-tab" id="view-read" role="tabpanel" aria-labelledby="view-tab-view" data-view-pane="view">
+    <fieldset class="canvas-view-section">
+      <legend>卡片内容</legend>
+      <div class="canvas-view-segments" role="group" aria-label="卡片阅读档位">
+        <button type="button" data-view-detail="title" aria-pressed="false">标题</button>
+        <button type="button" data-view-detail="summary" aria-pressed="false">摘要</button>
+        <button type="button" data-view-detail="full" aria-pressed="true">完整</button>
+      </div>
+    </fieldset>
+    <fieldset class="canvas-view-section">
+      <legend>筛选卡片</legend>
+      <div class="canvas-view-fields">
+        <label for="view-status">状态</label><select id="view-status"><option value="">全部状态</option></select>
+        <label for="view-tag">标签</label><select id="view-tag"><option value="">全部标签</option></select>
+        <label for="view-filter-mode">显示方式</label><select id="view-filter-mode"><option value="dim">淡化其他卡片</option><option value="hide">只显示匹配及上级</option></select>
+      </div>
+      <div class="canvas-view-status">
+        <span id="view-filter-summary" aria-live="polite"></span>
+        <button type="button" class="canvas-view-text-button" data-view-action="clear-filter" hidden>清除</button>
+      </div>
+    </fieldset>
+    <fieldset class="canvas-view-section">
+      <legend>分支</legend>
+      <div class="canvas-view-actions">
+        <button type="button" class="btn btn-outline" data-view-action="focus">聚焦选中分支</button>
+        <button type="button" class="btn btn-quiet" data-view-action="expand-all">展开全部</button>
+        <button type="button" class="btn btn-quiet" data-view-action="single-branch" aria-pressed="false" title="展开某张卡时自动收起同级其他分支（按住 Option 点击折叠钮可临时切换）">同级自动收起</button>
+      </div>
+    </fieldset>
+  </div>
+  <div class="canvas-view-tab" id="view-outline" role="tabpanel" aria-labelledby="view-tab-outline" data-view-pane="outline" hidden>
+    <div class="canvas-outline-toolbar">
+      <p>点击定位，拖动可调整同级顺序</p>
+      <button type="button" class="canvas-view-text-button" data-view-action="expand-all">展开全部</button>
+    </div>
+    <ul id="view-outline-list" aria-label="画布树形大纲"></ul>
+  </div>
+  <div class="canvas-view-tab" id="view-frames" role="tabpanel" aria-labelledby="view-tab-frames" data-view-pane="frames" hidden>
+    <fieldset class="canvas-view-section">
+      <legend>分区</legend>
+      <div class="canvas-view-fields">
+        <label for="view-frame-select">分区列表</label>
+        <select id="view-frame-select"><option value="">没有分区</option></select>
+      </div>
+      <button type="button" class="btn btn-outline canvas-view-new-frame" data-view-action="add-frame">将选中卡片建为分区</button>
+    </fieldset>
+    <fieldset class="canvas-view-section" id="view-frame-edit" hidden>
+      <legend>分区设置</legend>
+      <div class="canvas-view-fields">
+        <label for="view-frame-name">名称</label><input id="view-frame-name" type="text" maxlength="80">
+        <label for="view-frame-color">颜色</label>
+        <div class="inspector-swatches" id="view-frame-swatches">
+          <button type="button" class="inspector-swatch-btn" data-frame-swatch="#6d9780" style="background:#6d9780" aria-label="青苔绿" title="青苔绿" aria-pressed="false"></button>
+          <button type="button" class="inspector-swatch-btn" data-frame-swatch="#4b7bb8" style="background:#4b7bb8" aria-label="海盐蓝" title="海盐蓝" aria-pressed="false"></button>
+          <button type="button" class="inspector-swatch-btn" data-frame-swatch="#8a6db8" style="background:#8a6db8" aria-label="丁香紫" title="丁香紫" aria-pressed="false"></button>
+          <button type="button" class="inspector-swatch-btn" data-frame-swatch="#c48238" style="background:#c48238" aria-label="琥珀棕" title="琥珀棕" aria-pressed="false"></button>
+          <button type="button" class="inspector-swatch-btn" data-frame-swatch="#c45c6c" style="background:#c45c6c" aria-label="珊瑚红" title="珊瑚红" aria-pressed="false"></button>
+          <button type="button" class="inspector-swatch-btn" data-frame-swatch="#64748b" style="background:#64748b" aria-label="石板灰" title="石板灰" aria-pressed="false"></button>
+          <input id="view-frame-color" class="inspector-swatch-custom" type="color" value="#6d9780" aria-label="自定义分区颜色">
+        </div>
+      </div>
+      <p id="view-frame-summary" class="canvas-view-caption"></p>
+      <div class="canvas-view-actions">
+        <button type="button" class="btn btn-outline" data-view-action="locate-frame">选中成员</button>
+        <button type="button" class="btn btn-quiet btn-danger" data-view-action="delete-frame">移除分区</button>
+      </div>
+    </fieldset>
+  </div>
+</aside>
+<div class="view-status-stack">
+  <div class="view-focus-strip" id="view-focus-strip" role="status" hidden>
+    <span id="view-focus-name"></span>
+    <button type="button" class="btn btn-outline" data-view-action="exit-focus">退出聚焦 <kbd>Esc</kbd></button>
+  </div>
+  <div class="view-focus-strip" id="view-filter-strip" role="status" hidden>
+    <span id="view-filter-strip-text"></span>
+    <button type="button" class="btn btn-outline" data-view-action="clear-filter">清除筛选</button>
+  </div>
+</div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+  <div id="sync-alert" class="sync-alert" role="status" hidden>
+    <span id="sync-alert-text"></span>
+    <button type="button" class="btn btn-outline" data-action="sync-copy" hidden>保留为新画布</button>
+  </div>
+</main>
+<div id="sync-gate" class="sync-gate" hidden>
+  <section class="sync-gate-card">
+    <h1>连接本机画布</h1>
+    <p id="sync-gate-text">正在连接这台 Mac 的画布数据。</p>
+    <button type="button" class="btn btn-outline" id="sync-reload" hidden>重新连接</button>
+  </section>
+</div>
+
+<dialog id="note-dialog" aria-labelledby="note-heading">
+  <form class="dialog-form" id="note-form" method="dialog">
+    <div class="dialog-header">
+      <h2 id="note-heading">编辑卡片</h2>
+      <div class="note-header-actions">
+        <div class="tones" id="tone-options" role="group" aria-label="卡片类型"></div>
+        <button type="button" class="icon-btn" data-action="close-note" aria-label="关闭编辑"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+      </div>
+    </div>
+    <div class="field-group note-title-group"><input class="field" id="note-title" type="text" placeholder="输入标题，一句话概括这个想法" aria-label="卡片标题" autocomplete="off" autofocus></div>
+    <div class="field-group">
+      <div class="note-editor">
+        <div class="format-bar" role="group" aria-label="正文格式">
+          <button type="button" class="icon-btn format-mark" data-format="bold" title="加粗" aria-label="加粗" aria-pressed="false"><strong>B</strong></button>
+          <button type="button" class="icon-btn format-mark" data-format="italic" title="斜体" aria-label="斜体" aria-pressed="false"><em>I</em></button>
+          <button type="button" class="icon-btn format-heading" data-format="formatBlock" title="小标题" aria-label="小标题" aria-pressed="false">H</button>
+          <span class="separator" aria-hidden="true"></span>
+          <button type="button" class="icon-btn" data-format="insertUnorderedList" title="项目符号" aria-label="项目符号" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-bullets"/></svg></button>
+          <button type="button" class="icon-btn" data-format="insertOrderedList" title="编号列表" aria-label="编号列表" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-numbers"/></svg></button>
+          <button type="button" class="icon-btn" data-format="checklist" title="待办清单" aria-label="待办清单" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-checklist"/></svg></button>
+          <span class="separator" aria-hidden="true"></span>
+          <button type="button" class="btn btn-quiet" id="note-image-add" title="从本机选择图片"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span>插入图片</span></button>
+          <button type="button" class="btn btn-quiet btn-danger" id="note-image-remove" hidden>移除图片</button>
+        </div>
+        <div class="note-body flow-text" id="note-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="卡片正文" data-placeholder="写下细节，或直接粘贴截图…"></div>
+        <p class="note-image-status" id="note-image-status" role="status" hidden></p>
+        <input type="file" id="note-image-input" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+      </div>
+    </div>
+    <div class="field-group">
+      <details class="note-provenance" id="note-provenance">
+        <summary>来源与补充说明 <span id="note-provenance-summary"></span></summary>
+        <div class="note-provenance-stack">
+          <textarea class="field" id="note-extra" rows="2" placeholder="默认隐藏的补充说明（如采样时间、地区或推断边界）…"></textarea>
+          <div id="note-sources-rows" class="note-provenance-stack"></div>
+          <div><button type="button" class="btn btn-quiet" id="note-source-add">+ 添加来源</button></div>
+        </div>
+      </details>
+    </div>
+    <div class="dialog-footer"><span class="dialog-note">输入时自动保存 · <kbd data-mod>↵</kbd> 完成</span><button type="submit" class="btn btn-primary">完成</button></div>
+  </form>
+</dialog>
+
+<dialog id="text-dialog" aria-labelledby="text-heading">
+  <form class="dialog-form" id="text-form" method="dialog">
+    <div class="dialog-header"><h2 id="text-heading"></h2><button type="button" class="icon-btn" data-action="close-text" aria-label="取消"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <label class="field-label" id="text-label" for="text-field"></label>
+    <input class="field" id="text-field" type="text" autocomplete="off" autofocus>
+    <div class="dialog-footer"><button type="button" class="btn btn-outline" data-action="close-text">取消</button><button type="submit" class="btn btn-primary">保存</button></div>
+  </form>
+</dialog>
+
+<dialog id="help-dialog" aria-labelledby="help-heading">
+  <div class="help-content">
+    <div class="dialog-header"><h2 id="help-heading">操作指南 · v2.1</h2><button type="button" class="icon-btn" data-action="close-help" aria-label="关闭指南"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="help-grid">
+      <section class="help-group">
+        <h3>创建与编辑</h3>
+        <dl class="help-list">
+          <div><dt>新建卡片</dt><dd>双击空白 <kbd>N</kbd></dd></div>
+          <div><dt>原位编辑 / 大窗详情</dt><dd>双击卡片 / <kbd>E</kbd></dd></div>
+          <div><dt>添加分支或同级</dt><dd><kbd>Tab</kbd> / <kbd>Enter</kbd></dd></div>
+          <div><dt>待办清单</dt><dd>输入 <code>- [ ] </code> 转换</dd></div>
+          <div><dt>自由连线</dt><dd>拖出四边圆点 / <kbd>C</kbd></dd></div>
+        </dl>
+      </section>
+      <section class="help-group">
+        <h3>画布与导航</h3>
+        <dl class="help-list">
+          <div><dt>切换选中卡片</dt><dd>方向键 · <kbd>⇧</kbd> 加选</dd></div>
+          <div><dt>微调 / 禁用吸附</dt><dd><kbd>⌥</kbd> + 方向键 / 拖动按 <kbd>⌥</kbd></dd></div>
+          <div><dt>改挂为子分支</dt><dd>拖到目标卡停留松手</dd></div>
+          <div><dt>平移画布</dt><dd><kbd>空格</kbd> 拖动 / 双指滚动</dd></div>
+          <div><dt>缩放与查看全图</dt><dd>双指捏合 / 全图 <kbd>F</kbd></dd></div>
+          <div><dt>搜索或执行命令</dt><dd><kbd data-mod>K</kbd> · <kbd>&gt;</kbd> 看命令</dd></div>
+        </dl>
+      </section>
+      <section class="help-group">
+        <h3>布局与视图</h3>
+        <dl class="help-list">
+          <div><dt>自动整理与预览</dt><dd>顶部「自动整理」/「布局」</dd></div>
+          <div><dt>分类矩阵拖动</dt><dd>拖到目标格自动更新属性</dd></div>
+          <div><dt>样式、状态与色彩</dt><dd>顶部「样式」抽屉</dd></div>
+          <div><dt>筛选、折叠与分区</dt><dd>顶部眼睛图标 · <kbd>Esc</kbd> 退出</dd></div>
+          <div><dt>树形大纲拖拽</dt><dd>顶部大纲图标调顺序</dd></div>
+          <div><dt>右键菜单</dt><dd>卡片、连线或空白处右击</dd></div>
+        </dl>
+      </section>
+      <section class="help-group">
+        <h3>导出与协作</h3>
+        <dl class="help-list">
+          <div><dt>撤销与重做</dt><dd><kbd data-mod>Z</kbd> / <kbd data-mod>⇧Z</kbd></dd></div>
+          <div><dt>复制 / 粘贴卡片</dt><dd><kbd data-mod>C</kbd> / <kbd data-mod>V</kbd></dd></div>
+          <div><dt>复制 Markdown 给 AI</dt><dd><kbd data-mod>⇧C</kbd></dd></div>
+          <div><dt>导出图片或文档</dt><dd>「文件」PNG / SVG / MD</dd></div>
+        </dl>
+      </section>
+    </div>
+    <p class="help-note" id="help-save-note">浏览器会保存当前文件的编辑。要把内容带到另一台设备或另一个浏览器，请在「文件」中导出可编辑 HTML。</p>
+  </div>
+</dialog>
+
+<div id="context-menu" class="context-menu" role="menu" hidden></div>
+
+<dialog id="image-lightbox" aria-label="图片预览">
+  <div class="lightbox-bar">
+    <span id="lightbox-caption">图片预览（滚轮可缩放）</span>
+    <button type="button" class="icon-btn" data-action="close-lightbox" aria-label="关闭图片预览"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+  </div>
+  <div class="lightbox-stage"><img id="lightbox-image" alt="卡片图片预览"></div>
+</dialog>
+
+<script id="canvas-data" type="application/json">{"edition":"idea-canvas-v1","workspace":null}</script>
+<script>
+(async () => {
+"use strict";
+<!-- @include scripts/01-rich-text.js -->
+<!-- @include scripts/02-data.js -->
+<!-- @include scripts/03-workspace-sync.js -->
+<!-- @include scripts/04-layout.js -->
+<!-- @include scripts/05-inspector.js -->
+<!-- @include scripts/06-views.js -->
+<!-- @include scripts/07-render.js -->
+<!-- @include scripts/08-editing-and-search.js -->
+<!-- @include scripts/09-export.js -->
+<!-- @include scripts/10-clipboard.js -->
+<!-- @include scripts/11-input-and-startup.js -->
+})();
+</script>
+</body>
+</html>

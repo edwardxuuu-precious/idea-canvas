@@ -11,10 +11,13 @@ final class CanvasLoopback: @unchecked Sendable {
     private let queue = DispatchQueue(label: "IdeaCanvas.loopback")
     private let queueKey = DispatchSpecificKey<Bool>()
     private let listener: NWListener
+    private let portNumber: UInt16
+    private let rootURL: URL
     private let origin: String
     private let host: String
     private let cookieName: String
     private let session: String
+    private let apiToken: String
     private let page: Data
     private let read: @Sendable (String?) throws -> CanvasSyncSnapshot?
     private let write: @Sendable (String, String) throws -> CanvasSyncSnapshot
@@ -40,14 +43,21 @@ final class CanvasLoopback: @unchecked Sendable {
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: endpoint)
         parameters.requiredInterfaceType = .loopback
         listener = try NWListener(using: parameters)
+        portNumber = port
+        rootURL = root
         host = port == 80 ? "127.0.0.1" : "127.0.0.1:\(port)"
         origin = "http://\(host)"
         cookieName = "idea_canvas_\(port)"
-        session = Self.hex(try Self.sessionKey(in: root))
+        session = Self.hex(try Self.secretKey(named: "browser-session.key", in: root))
+        apiToken = Self.hex(try Self.secretKey(named: "local-api.key", in: root))
         self.page = page
         self.read = read
         self.write = write
         queue.setSpecific(key: queueKey, value: true)
+    }
+
+    static func isLocalAPIEnabled(in root: URL) -> Bool {
+        !FileManager.default.fileExists(atPath: root.appendingPathComponent("local-api.disabled").path)
     }
 
     func start(onState: @escaping @Sendable (Bool) -> Void) {
@@ -206,7 +216,15 @@ final class CanvasLoopback: @unchecked Sendable {
             try authorizeJSON(head)
             guard head.length <= 1024 else { throw Failure.bodyTooLarge }
             return Request(route: .pair, length: head.length)
+        case ("GET", "/api/agent/health"):
+            guard head.length == 0 else { throw Failure.badRequest }
+            guard authenticatedAgent(head) else { throw Failure.unauthorized }
+            return Request(route: .agentHealth, length: 0)
         case ("PUT", "/api/state"):
+            if authenticatedAgent(head) {
+                try validateJSONPayload(head)
+                return Request(route: .write, length: head.length)
+            }
             try authorizeJSON(head)
             guard authenticated(head.headers["cookie"]) else { throw Failure.unauthorized }
             return Request(route: .write, length: head.length)
@@ -225,6 +243,9 @@ final class CanvasLoopback: @unchecked Sendable {
 
     private func authorizeRead(_ head: Head, since: String?) throws -> Request {
         guard head.length == 0 else { throw Failure.badRequest }
+        if authenticatedAgent(head) {
+            return Request(route: .read(since), length: 0)
+        }
         guard authenticated(head.headers["cookie"]) else { throw Failure.unauthorized }
         if let requestOrigin = head.headers["origin"], requestOrigin != origin {
             throw Failure.invalidOrigin
@@ -234,6 +255,10 @@ final class CanvasLoopback: @unchecked Sendable {
 
     private func authorizeJSON(_ head: Head) throws {
         guard head.headers["origin"] == origin else { throw Failure.invalidOrigin }
+        try validateJSONPayload(head)
+    }
+
+    private func validateJSONPayload(_ head: Head) throws {
         let mediaType = head.headers["content-type"]?
             .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
             .first?.trimmingCharacters(in: .whitespaces).lowercased()
@@ -261,6 +286,11 @@ final class CanvasLoopback: @unchecked Sendable {
                 status: 204, reason: "No Content",
                 cookie: "\(cookieName)=\(session); HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000"
             )
+        case .agentHealth:
+            return try Response.json(
+                200, "OK",
+                AgentHealth(ok: true, port: portNumber, pid: ProcessInfo.processInfo.processIdentifier)
+            )
         case .read(let since):
             guard let snapshot = try read(since) else {
                 return Response(status: 204, reason: "No Content")
@@ -282,6 +312,14 @@ final class CanvasLoopback: @unchecked Sendable {
                 throw Failure.invalidSnapshot
             }
         }
+    }
+
+    private func authenticatedAgent(_ head: Head) -> Bool {
+        guard head.headers["origin"] == nil, Self.isLocalAPIEnabled(in: rootURL),
+              let authorization = head.headers["authorization"] else { return false }
+        let parts = authorization.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].lowercased() == "bearer" else { return false }
+        return Self.matches(String(parts[1]).trimmingCharacters(in: .whitespaces), apiToken)
     }
 
     private func authenticated(_ cookie: String?) -> Bool {
@@ -312,9 +350,9 @@ final class CanvasLoopback: @unchecked Sendable {
         } == 0
     }
 
-    private static func sessionKey(in root: URL) throws -> Data {
+    private static func secretKey(named name: String, in root: URL) throws -> Data {
         let manager = FileManager.default
-        let secretFile = root.appendingPathComponent("browser-session.key")
+        let secretFile = root.appendingPathComponent(name)
         try manager.createDirectory(
             at: root, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
@@ -337,7 +375,7 @@ final class CanvasLoopback: @unchecked Sendable {
         } catch let error as NSError where error.domain == NSCocoaErrorDomain
             && [NSFileReadNoSuchFileError, NSFileNoSuchFileError].contains(error.code) {
             // Publish a complete, private key without replacing a concurrent creator's key.
-            let staging = root.appendingPathComponent(".browser-session-\(UUID().uuidString)", isDirectory: true)
+            let staging = root.appendingPathComponent(".\(name)-\(UUID().uuidString)", isDirectory: true)
             try manager.createDirectory(
                 at: staging, withIntermediateDirectories: false,
                 attributes: [.posixPermissions: 0o700]
@@ -394,7 +432,7 @@ final class CanvasLoopback: @unchecked Sendable {
     }
 
     private enum Route {
-        case page(headOnly: Bool), pair, read(String?), write
+        case page(headOnly: Bool), pair, agentHealth, read(String?), write
     }
 
     private struct Request {
@@ -417,7 +455,7 @@ final class CanvasLoopback: @unchecked Sendable {
                 throw Failure.badRequest
             }
 
-            let critical: Set<String> = ["host", "origin", "cookie", "content-type",
+            let critical: Set<String> = ["host", "origin", "cookie", "authorization", "content-type",
                                          "content-length", "transfer-encoding", "expect"]
             var headers: [String: String] = [:]
             for line in fields.dropFirst() {
@@ -465,6 +503,12 @@ final class CanvasLoopback: @unchecked Sendable {
     private struct WriteBody: Decodable {
         let expectedRevision: String
         let json: String
+    }
+
+    private struct AgentHealth: Encodable {
+        let ok: Bool
+        let port: UInt16
+        let pid: Int32
     }
 
     private struct Response {

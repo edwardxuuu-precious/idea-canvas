@@ -107,7 +107,16 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
             let server = try CanvasLoopback(
                 port: syncPort, page: Data(page.utf8), root: dataRoot,
                 read: { try store.snapshot(since: $0) },
-                write: { try store.saveSynced($1, expectedRevision: $0) }
+                write: { [weak self] expected, json in
+                    let snapshot = try store.saveSynced(json, expectedRevision: expected)
+                    Task { @MainActor [weak self] in
+                        _ = try? await self?.webView?.callAsyncJavaScript(
+                            "window.dispatchEvent(new Event('focus'));",
+                            arguments: [:], in: nil, contentWorld: .page
+                        )
+                    }
+                    return snapshot
+                }
             )
             syncServer = server
             server.start { [weak self] ready in
@@ -277,12 +286,33 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
         let requested = navigationAction.request.url?.resolvingSymlinksInPath().standardizedFileURL
-        guard !openedLayout, requested == layoutURL?.resolvingSymlinksInPath().standardizedFileURL else {
-            decisionHandler(.cancel)
+        if !openedLayout, requested == layoutURL?.resolvingSymlinksInPath().standardizedFileURL {
+            openedLayout = true
+            decisionHandler(.allow)
             return
         }
-        openedLayout = true
-        decisionHandler(.allow)
+        if openedLayout,
+           navigationAction.navigationType == .linkActivated,
+           let url = navigationAction.request.url,
+           let scheme = url.scheme?.lowercased(),
+           ["http", "https"].contains(scheme) {
+            NSWorkspace.shared.open(url)
+        }
+        decisionHandler(.cancel)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if let url = navigationAction.request.url,
+           let scheme = url.scheme?.lowercased(),
+           ["http", "https"].contains(scheme) {
+            NSWorkspace.shared.open(url)
+        }
+        return nil
     }
 
     func webView(
@@ -336,6 +366,29 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         if let backups = store?.backups { NSWorkspace.shared.open(backups) }
     }
 
+    @objc private func toggleLocalAPI(_ sender: NSMenuItem) {
+        let marker = dataRoot.appendingPathComponent("local-api.disabled")
+        let manager = FileManager.default
+        do {
+            if manager.fileExists(atPath: marker.path) {
+                try manager.removeItem(at: marker)
+                sender.state = .on
+            } else {
+                try Data("disabled\n".utf8).write(to: marker, options: .atomic)
+                try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
+                sender.state = .off
+            }
+        } catch {
+            if let window {
+                let alert = NSAlert()
+                alert.messageText = "无法切换本机 AI / MCP 接入状态"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "确定")
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            }
+        }
+    }
+
     private func installMenu() {
         let menu = NSMenu()
         let appItem = NSMenuItem()
@@ -347,6 +400,10 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         let fileItem = NSMenuItem()
         let file = NSMenu(title: "文件")
         file.addItem(withTitle: "复制浏览器同步链接", action: #selector(copySyncLink), keyEquivalent: "").target = self
+        let localAPIItem = NSMenuItem(title: "允许本机 AI / MCP 接入", action: #selector(toggleLocalAPI(_:)), keyEquivalent: "")
+        localAPIItem.target = self
+        localAPIItem.state = CanvasLoopback.isLocalAPIEnabled(in: dataRoot) ? .on : .off
+        file.addItem(localAPIItem)
         file.addItem(withTitle: "打开本地数据文件夹", action: #selector(openDataFolder), keyEquivalent: "").target = self
         file.addItem(withTitle: "打开历史备份", action: #selector(openBackupsFolder), keyEquivalent: "").target = self
         fileItem.submenu = file

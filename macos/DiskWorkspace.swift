@@ -71,6 +71,7 @@ private struct DiskSnapshot {
         let tags: [String]?
         let pinned: Bool?
         let order: Double?
+        let subBoardId: String?
     }
 
     struct Edge: Decodable, Equatable {
@@ -150,6 +151,11 @@ private struct DiskSnapshot {
                 guard Self.validCoordinate(card.x), Self.validCoordinate(card.y),
                       (64...1_000_000).contains(card.w), (36...1_000_000).contains(card.h) else {
                     throw DiskWorkspaceError("卡片位置或尺寸无效。")
+                }
+                if let subBoardId = card.subBoardId {
+                    guard Self.validID(subBoardId) else {
+                        throw DiskWorkspaceError("子画布标识无效。")
+                    }
                 }
             }
             var edgeIDs = Set<String>()

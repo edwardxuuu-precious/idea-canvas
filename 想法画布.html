@@ -233,7 +233,7 @@ svg { display: block; }
 
 
 /* Refined Card Design System */
-.card[data-tone="topic"] {
+.card[data-tone="topic"]:not([data-depth="3"]) {
   --card-bg: linear-gradient(145deg, var(--topic-bg-start, #163029), var(--topic-bg-end, #1f4238)); --card-line: var(--topic-line, #1b3a31);
   --card-ink: #f8fafc; --card-sub: var(--topic-sub, #d1fae5); --card-accent: var(--topic-accent, #6ee7b7); --map-color: var(--topic-map, #1f4238);
 }
@@ -291,7 +291,7 @@ svg { display: block; }
   100% { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; }
 }
 .card.is-remote-updated { animation: remote-flash 1.8s cubic-bezier(.22, 1, .36, 1); }
-.card[data-tone="topic"] {
+.card[data-tone="topic"]:where(:not([data-depth="3"])) {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 10px 26px -4px rgba(15, 23, 42, 0.26);
 }
 .card.selected, .card.link-target {
@@ -306,21 +306,11 @@ svg { display: block; }
 }
 .card-copy { display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 14px 16px 13px; border-radius: inherit; }
 .card[data-tone="topic"] .card-copy { padding: 18px 20px 16px; }
-.card-type {
-  display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
-  font-size: 11px; line-height: 15px; font-weight: 620; color: var(--card-accent); letter-spacing: .01em;
-}
-.card:not([data-tone="topic"]):not([data-profile="title"]) .card-type {
-  padding: 2px 7px; border-radius: 999px;
-  background: color-mix(in srgb, var(--card-accent) 10%, transparent);
-}
-.card-type .icon { width: 12.5px; height: 12.5px; stroke-width: 1.85; }
 .card:is([data-profile="note"],[data-profile="image"]) { width: max-content; }
 .card-title {
   flex: none; margin: 0 0 6px; font-size: 15.5px; line-height: 1.38; font-weight: 680;
   letter-spacing: -.015em; text-wrap: balance; overflow-wrap: anywhere;
 }
-.card-type:not([hidden]) + .card-title { margin-top: 6px; }
 .card[data-tone="topic"] .card-title { font-size: 19px; line-height: 1.3; font-weight: 720; letter-spacing: -.018em; }
 .card-body { color: var(--card-sub); font-size: 13.5px; line-height: 1.66; overflow-wrap: anywhere; }
 .card-body.is-plain { white-space: pre-wrap; }
@@ -337,12 +327,9 @@ svg { display: block; }
   flex: 1; margin: 0; font-size: 14.5px; font-weight: 620;
 }
 .card[data-tone="topic"][data-profile="title"] .card-title { font-size: 17px; font-weight: 700; }
-.card[data-profile="title"] .card-type span { display: none; }
 .card[data-profile="empty"] { background: var(--glass); border: 1.5px dashed var(--line); color: var(--muted); box-shadow: none; }
 .card[data-profile="empty"] .card-title { font-size: 13px; font-weight: 560; }
 .card:is([data-profile="title"],[data-profile="empty"]) .card-size { display: none; }
-#viewport.is-overview .card[data-profile="title"] .card-title { font-size: 18px; }
-#viewport.is-overview .card[data-tone="topic"][data-profile="title"] .card-title { font-size: 21px; }
 
 .flow-text :is(p, div, h2, h3, blockquote, ul, ol) { margin: 0 0 .45em; }
 .flow-text :is(h2, h3) { font-size: 1.08em; font-weight: 700; line-height: 1.38; }
@@ -358,8 +345,8 @@ svg { display: block; }
   overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5;
 }
 .flow-text a { color: var(--board-accent, var(--green)); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.card[data-tone="topic"] .flow-text a { color: var(--card-sub); }
-.card[data-tone="topic"] .flow-text code { background: rgba(255, 255, 255, 0.16); }
+.card[data-tone="topic"]:not([data-depth="3"]) .flow-text a { color: var(--card-sub); }
+.card[data-tone="topic"]:not([data-depth="3"]) .flow-text code { background: rgba(255, 255, 255, 0.16); }
 :root[data-chrome="dark"] .flow-text code { background: rgba(255, 255, 255, 0.09); }
 :root[data-chrome="dark"] .flow-text pre { background: rgba(255, 255, 255, 0.06); }
 
@@ -390,6 +377,58 @@ svg { display: block; }
 #viewport.is-zoomed-out .card :is(.card-port,.card-size) { opacity: 0; pointer-events: none; }
 .marquee { position: absolute; pointer-events: none; border: 1.5px solid var(--board-accent, var(--green)); background: color-mix(in srgb, var(--board-accent, var(--green)) 12%, transparent); border-radius: 6px; }
 
+.card[data-tone="topic"][data-depth="0"]:not([data-profile="title"]) .card-title { font-size: 23px; }
+.card[data-tone="topic"][data-depth="2"]:not([data-profile="title"]) .card-title { font-size: 17px; }
+.card[data-tone="topic"][data-depth="3"] {
+  --card-bg: color-mix(in srgb, var(--board-accent, #0f766e) 7%, #ffffff);
+  --card-line: color-mix(in srgb, var(--board-accent, #0f766e) 26%, #ffffff);
+  --card-ink: #1e293b; --card-sub: #475569; --card-accent: var(--board-accent, #0f766e);
+}
+:root[data-chrome="dark"] .card[data-tone="topic"][data-depth="3"] {
+  --card-bg: color-mix(in srgb, var(--board-accent, #10b981) 15%, #181c24);
+  --card-line: color-mix(in srgb, var(--board-accent, #10b981) 34%, #181c24);
+  --card-ink: #f1f5f9; --card-sub: #cbd5e1;
+}
+.card[data-tone="topic"][data-depth="3"]:not([data-profile="title"]):not([data-profile="empty"]) .card-copy { padding: 14px 16px 13px 18px; }
+.card[data-tone="topic"][data-depth="3"] :is(.card-title, .inline-title) { font-size: 15.5px; line-height: 1.38; font-weight: 700; letter-spacing: -.015em; }
+.card:not([data-profile="title"]):not([data-profile="empty"]):not([data-shape]):not([data-custom-fill])::before {
+  content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px; border-radius: 0 3px 3px 0;
+  background: var(--card-accent); pointer-events: none;
+}
+.card[data-tone="topic"]:not([data-depth="3"])::before { display: none; }
+
+.card-status {
+  position: absolute; top: 9px; right: 9px; z-index: 1; max-width: calc(100% - 18px);
+  display: inline-flex; flex-direction: row-reverse; align-items: center; gap: 5px; height: 18px; padding: 0 5px;
+  border-radius: 999px; font-size: 11px; font-weight: 620; line-height: 1; color: var(--card-sub); cursor: pointer;
+}
+.card-status i {
+  width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--chip-ink, var(--green));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--chip-ink, var(--green)) 24%, transparent);
+}
+.card-status span { display: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:is(.card:hover, .card.selected) .card-status, .card-status:focus-visible {
+  background: var(--paper); color: var(--ink); box-shadow: 0 1px 4px rgba(15, 23, 42, 0.14);
+}
+:is(.card:hover, .card.selected) .card-status span, .card-status:focus-visible span { display: inline; }
+.card[data-has-status]:not([data-profile="title"]):not([data-profile="empty"]) .card-title { padding-right: 16px; }
+.card:is([data-profile="title"],[data-profile="empty"]) .card-status { top: 0; bottom: 0; right: 10px; margin: auto 0; }
+.card[data-has-status]:is([data-profile="title"],[data-profile="empty"]) .card-copy { padding-right: 28px; }
+
+.card-glance {
+  display: none; position: absolute; inset: 0; align-items: center; padding: 6px 12px 6px 14px;
+  overflow: hidden; border-radius: inherit; color: var(--card-ink); pointer-events: none;
+}
+.card-glance span {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+  font-size: clamp(14px, calc(12.5px / var(--glance-scale, 1)), 72px);
+  line-height: 1.2; font-weight: 700; letter-spacing: -.01em; overflow-wrap: anywhere;
+}
+.card:is([data-depth="0"],[data-depth="1"]) .card-glance span { font-size: clamp(16px, calc(16px / var(--glance-scale, 1)), 110px); }
+#viewport.is-overview .card:not(.is-editing) .card-glance { display: flex; }
+#viewport.is-overview .card:not(.is-editing) > :is(.card-copy, .card-status, .card-size) { visibility: hidden; }
+#viewport.is-far .card[data-depth="3"]:not(.selected) .card-glance { display: none; }
+#viewport.is-far .card[data-depth="3"]:not(.selected):not(.is-dimmed) { opacity: .55; }
 
 /* Bottom Centered Floating Dock (replaces old left rail) */
 .rail, .panel, .float-controls, .selection-tools, .tip {
@@ -573,6 +612,8 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.42); backdrop-filter: blur(4px
 .sync-alert .btn { height: 28px; padding-inline: 9px; }
 :root[data-chrome="dark"] .sync-alert { background: #2b2112; border-color: rgba(245, 158, 11, 0.35); color: #fcd34d; }
 
+:is(.bar-left, .search-trigger, .bar-right, .rail, #map-panel, .float-controls) { transition: opacity .2s ease; }
+:is(.bar-left, .search-trigger, .bar-right, .rail, #map-panel, .float-controls).is-covering:not(:hover):not(:focus-within) { opacity: .45; }
 
 /* Unified Right Floating Drawers (Layout, Inspector, Views/Outline) */
 .feature-drawer, .inspector-panel, .canvas-views {
@@ -897,7 +938,7 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.42); backdrop-filter: blur(4px
 .card[data-intrinsic] { width: max-content; }
 .card[data-intrinsic] .card-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 13px; }
 .card[data-intrinsic] .card-title { flex: none; }
-.card[data-detail="title"] :is(.card-body,.card-cover) { display: none; }
+.card[data-detail="title"] :is(.card-body,.card-cover,.done-toggle) { display: none; }
 .card[data-detail="summary"] .card-body { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; max-height: 4.8em; overflow: hidden; }
 .card[data-detail="summary"] .card-cover img { max-height: 90px; }
 .card-body img { height: auto; max-width: 100%; max-height: 240px; object-fit: contain; vertical-align: middle; }
@@ -907,17 +948,17 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.42); backdrop-filter: blur(4px
   margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--card-divider);
   font-size: 11px; line-height: 1.25;
 }
-.card[data-tone="topic"] .card-meta { border-top-color: rgba(255, 255, 255, 0.14); }
+.card[data-tone="topic"]:not([data-depth="3"]) .card-meta { border-top-color: rgba(255, 255, 255, 0.14); }
 .card[data-intrinsic] .card-meta { margin: 2px 0 0; padding-top: 6px; }
 .card-chip, .card-fold {
   display: inline-flex; align-items: center; gap: 4px; color: var(--ink-soft); background: var(--surface-sub);
   border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; font: inherit; line-height: 1.3;
   max-width: 100%; overflow-wrap: anywhere;
 }
-.card[data-tone="topic"] .card-chip { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.22); color: #f8fafc; }
+.card[data-tone="topic"]:not([data-depth="3"]) .card-chip { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.22); color: #f8fafc; }
 button.card-chip, .card-fold { cursor: pointer; }
 button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:hover { border-color: var(--board-accent, var(--green)); background: var(--green-light); color: var(--board-accent, var(--green)); }
-.card[data-tone="topic"] .card-chip.is-sources[aria-expanded="true"] { background: rgba(255, 255, 255, 0.24); border-color: #a7f3d0; color: #fff; }
+.card[data-tone="topic"]:not([data-depth="3"]) .card-chip.is-sources[aria-expanded="true"] { background: rgba(255, 255, 255, 0.24); border-color: #a7f3d0; color: #fff; }
 .canvas-view-actions .btn[aria-pressed="true"] { background: var(--green-light); border-color: var(--board-accent, var(--green)); color: var(--board-accent, var(--green)); }
 .card-chip i, .card-chip-mark { display: inline-block; color: var(--chip-ink, var(--green)); font-style: normal; font-weight: 700; flex: none; }
 .card-chip i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
@@ -948,7 +989,7 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
   background: var(--board-accent, var(--green)); border-color: var(--board-accent, var(--green)); color: #fff;
 }
 .card-fold[aria-expanded="false"]:hover { filter: brightness(0.92); background: var(--board-accent, var(--green)); color: #fff; }
-#viewport.is-hand :is(.card-fold,button.card-chip,.check-box,a[href],.card-cover img,.card-body img), #viewport.is-link :is(.card-fold,button.card-chip,.check-box,a[href],.card-cover img,.card-body img) { pointer-events: none; }
+#viewport.is-hand :is(.card-fold,button.card-chip,.card-status,.done-toggle,.check-box,a[href],.card-cover img,.card-body img), #viewport.is-link :is(.card-fold,button.card-chip,.card-status,.done-toggle,.check-box,a[href],.card-cover img,.card-body img) { pointer-events: none; }
 .stage:has(:is(#layout-panel,#inspector-panel,#views-panel):not([hidden])) #idle-tip { display: none; }
 .stage:has(:is(#inspector-panel,#views-panel,#layout-panel):not([hidden])) #map-panel { display: none; }
 
@@ -974,6 +1015,14 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
   .feature-drawer, .inspector-panel, .canvas-views { top: calc(var(--chrome-top) + 42px); right: 10px; width: calc(100vw - 20px); max-height: calc(100dvh - var(--chrome-top) - 116px); }
 }
 
+.focus-path { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+.focus-path-crumb {
+  max-width: 160px; padding: 3px 6px; border-radius: 6px; color: var(--ink-soft); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.focus-path-crumb:hover { background: var(--glass-hover); color: var(--ink); }
+.focus-path-sep { flex: none; color: var(--muted); padding: 0 1px; }
+.focus-path-current { max-width: 260px; padding: 0 4px; font-size: 12.5px; font-weight: 680; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* === Checklist, Inline Editing, Breadcrumbs, Context Menu & Lightbox === */
 .checklist-item { display: flex; align-items: flex-start; gap: 8px; list-style: none; margin: 4px 0; }
@@ -987,9 +1036,10 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
 .check-box:hover { border-color: var(--board-accent, var(--green)); }
 .check-box[aria-checked="true"] { background: var(--board-accent, var(--green)); border-color: var(--board-accent, var(--green)); color: #fff; }
 .check-box[aria-checked="true"]::after { content: "✓"; font-size: 11px; font-weight: 800; line-height: 1; }
-.checklist-item[data-done="true"] > .check-text { text-decoration: line-through; opacity: .6; }
-.card[data-tone="topic"] .check-box { border-color: var(--card-accent); background: rgba(255, 255, 255, 0.1); }
-.card[data-tone="topic"] .check-box[aria-checked="true"] { background: var(--card-accent); border-color: var(--card-accent); color: #0f172a; }
+.card:not(.is-editing):not([data-show-done]) .card-body .checklist-item[data-done="true"] { display: none; }
+.checklist-item[data-done="true"] > .check-text { opacity: .6; }
+.card[data-tone="topic"]:not([data-depth="3"]) .check-box { border-color: var(--card-accent); background: rgba(255, 255, 255, 0.1); }
+.card[data-tone="topic"]:not([data-depth="3"]) .check-box[aria-checked="true"] { background: var(--card-accent); border-color: var(--card-accent); color: #0f172a; }
 
 .card-chip.is-progress {
   background: linear-gradient(90deg, var(--green-light) var(--progress, 0%), var(--surface-sub) var(--progress, 0%));
@@ -1003,12 +1053,6 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
 }
 .card-chip.is-subboard:hover { filter: brightness(0.95); }
 
-#viewport.is-zoomed-out .card :is(.card-body, .card-meta) {
-  transition: opacity .16s ease;
-}
-#viewport.is-zoomed-out .card:not(.is-editing):not(:hover):not(.selected) :is(.card-body, .card-meta) {
-  opacity: 0; pointer-events: none;
-}
 
 .card.is-neighbor { box-shadow: 0 0 0 1px var(--board-accent, var(--green)), 0 0 0 3px color-mix(in srgb, var(--board-accent, var(--green)) 10%, transparent), 0 8px 22px rgba(15, 23, 42, 0.10); }
 .edge.is-connected { stroke: var(--board-accent, #0f766e); stroke-width: calc(var(--edge-width, 1.5px) + 1.3px); }
@@ -1025,8 +1069,7 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
   flex-direction: column; align-items: stretch; gap: 4px; padding: 11px 14px;
 }
 .card.is-editing:is([data-profile="title"],[data-profile="empty"]) { border-radius: 14px; height: auto !important; }
-.card.is-editing:is([data-profile="title"],[data-profile="empty"]) .card-type span { display: inline; }
-.card.is-editing :is(.card-port, .card-size, .card-fold, .card-title, .card-cover, .card-body) { display: none !important; }
+.card.is-editing :is(.card-port, .card-size, .card-fold, .card-status, .card-title, .card-cover, .card-body, .done-toggle) { display: none !important; }
 .inline-toolbar {
   position: absolute; left: 0; bottom: calc(100% + 8px);
   display: flex; align-items: center; gap: 3px; padding: 4px 6px;
@@ -1051,9 +1094,8 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
   transition: border-color .14s ease;
 }
 .inline-title:focus { border-bottom-color: color-mix(in srgb, var(--card-accent) 45%, transparent); }
-.card-type:not([hidden]) + .inline-title { margin-top: 6px; }
 .card[data-tone="topic"] .inline-title { font-size: 19px; line-height: 1.3; font-weight: 720; letter-spacing: -.018em; }
-.card[data-tone="topic"] .inline-title:focus { border-bottom-color: rgba(255, 255, 255, 0.28); }
+.card[data-tone="topic"]:not([data-depth="3"]) .inline-title:focus { border-bottom-color: rgba(255, 255, 255, 0.28); }
 .inline-title::placeholder { color: var(--card-sub); opacity: .55; font-weight: 500; }
 .inline-body {
   min-height: 24px; max-height: 260px; overflow-y: auto; outline: none; position: relative;
@@ -1213,6 +1255,14 @@ a.source-popover-link:hover .source-popover-label { color: var(--board-accent, v
 .lightbox-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
 .lightbox-stage { max-width: 88vw; max-height: 82dvh; overflow: auto; display: grid; place-items: center; }
 #image-lightbox img { display: block; max-width: 88vw; max-height: 82dvh; object-fit: contain; border-radius: 8px; transform-origin: center center; }
+
+.done-toggle {
+  display: inline-flex; align-items: center; align-self: flex-start; gap: 5px; margin-top: 4px; padding: 1px 0;
+  font: inherit; font-size: 12px; color: var(--card-sub); opacity: .82; cursor: pointer;
+}
+.done-toggle::before { content: "▸"; font-size: 12px; line-height: 1; }
+.card[data-show-done] .done-toggle::before { content: "▾"; }
+.done-toggle:hover { opacity: 1; text-decoration: underline; text-underline-offset: 2px; }
 
 </style>
 </head>
@@ -1402,7 +1452,7 @@ a.source-popover-link:hover .source-popover-label { color: var(--board-accent, v
     <span class="selection-divider" aria-hidden="true"></span>
     <button type="button" class="icon-btn" data-action="edit-selected" title="编辑 (E)" aria-label="编辑"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button>
     <button type="button" class="icon-btn" data-action="branch-selected" title="添加分支 (Tab)" aria-label="添加分支"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg></button>
-    <button type="button" class="icon-btn" data-action="focus-branch" title="聚焦分支" aria-label="聚焦分支"><svg class="icon" aria-hidden="true"><use href="#i-target"/></svg></button>
+    <button type="button" class="icon-btn" data-action="focus-branch" title="只看这个分支" aria-label="只看这个分支"><svg class="icon" aria-hidden="true"><use href="#i-target"/></svg></button>
     <button type="button" class="icon-btn" id="align-menu-btn" data-action="align-menu" title="对齐和分布" aria-label="对齐和分布" aria-expanded="false" aria-controls="align-popover" hidden><svg class="icon" aria-hidden="true"><use href="#i-align"/></svg></button>
     <button type="button" class="icon-btn" id="selection-more-btn" data-action="selection-more" title="更多操作" aria-label="更多操作" aria-expanded="false" aria-controls="selection-more-popover"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button>
     <button type="button" class="icon-btn btn-danger" data-action="remove" title="删除选中项目 (Delete)" aria-label="删除选中项目"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>
@@ -1515,7 +1565,7 @@ a.source-popover-link:hover .source-popover-label { color: var(--board-accent, v
     <fieldset class="canvas-view-section">
       <legend>分支</legend>
       <div class="canvas-view-actions">
-        <button type="button" class="btn btn-outline" data-view-action="focus">聚焦选中分支</button>
+        <button type="button" class="btn btn-outline" data-view-action="focus">只看选中分支</button>
         <button type="button" class="btn btn-quiet" data-view-action="expand-all">展开全部</button>
         <button type="button" class="btn btn-quiet" data-view-action="single-branch" aria-pressed="false" title="展开某张卡时自动收起同级其他分支（按住 Option 点击折叠钮可临时切换）">同级自动收起</button>
       </div>
@@ -1562,8 +1612,8 @@ a.source-popover-link:hover .source-popover-label { color: var(--board-accent, v
 </aside>
 <div class="view-status-stack">
   <div class="view-focus-strip" id="view-focus-strip" role="status" hidden>
-    <span id="view-focus-name"></span>
-    <button type="button" class="btn btn-outline" data-view-action="exit-focus">退出聚焦 <kbd>Esc</kbd></button>
+    <nav id="view-focus-name" class="focus-path" aria-label="分支路径"></nav>
+    <button type="button" class="btn btn-outline" data-view-action="exit-focus">看全部 <kbd>Esc</kbd></button>
   </div>
   <div class="view-focus-strip" id="view-filter-strip" role="status" hidden>
     <span id="view-filter-strip-text"></span>
@@ -2367,7 +2417,23 @@ const clamp = (number, low, high) => Math.max(low, Math.min(high, number));
 const coordinate = value => clamp(value, -1e9, 1e9);
 const titleOf = node => node.title.trim() || '未命名卡片';
 const prefersReducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-const chromeTopLimit = () => Math.round(($('.bar')?.getBoundingClientRect().bottom || 56) + 10);
+const chromeTopLimit = () => {
+  const barBottom = ($('.bar')?.getBoundingClientRect().bottom || 56) + 10;
+  const strips = [...document.querySelectorAll('.view-status-stack > :not([hidden])')]
+    .map(strip => strip.getBoundingClientRect().bottom + 10);
+  return Math.round(Math.max(barBottom, ...strips));
+};
+
+function canvasSafeInsets() {
+  const area = viewport.getBoundingClientRect();
+  const rail = $('.rail')?.getBoundingClientRect();
+  return {
+    top: Math.max(0, chromeTopLimit() - area.top),
+    bottom: rail?.height ? Math.max(0, area.bottom - rail.top + 10) : 24,
+    left: 16,
+    right: 16,
+  };
+}
 
 let selection = noSelection();
 let camera = { x: 0, y: 0, scale: 1 };
@@ -3115,7 +3181,9 @@ function fitNodes(ids, temporary = false, anchorId = null, { instant = false } =
   const key = $('#matrix-key');
   const topInset = includeMatrix ? key.offsetTop + key.offsetHeight + 18 : 0;
   const bottomInset = includeMatrix ? 58 : 0;
-  const usableHeight = height - (includeMatrix ? topInset + bottomInset : marginY);
+  const safe = canvasSafeInsets();
+  const usableHeight = includeMatrix ? height - topInset - bottomInset
+    : Math.max(120, Math.min(height - marginY, height - safe.top - safe.bottom - 24));
   let scale = clamp(Math.min((usefulWidth - marginX) / bounds.w, usableHeight / bounds.h), .08, 1.15);
   if (anchorId && scale < .8) {
     const anchor = nodes.find(node => node.id === anchorId) || nodes[0];
@@ -3140,7 +3208,7 @@ function fitNodes(ids, temporary = false, anchorId = null, { instant = false } =
     scale = .8;
   }
   const x = coordinate((bounds.left + bounds.right) / 2 + drawerWidth / (2 * scale));
-  const verticalOffset = includeMatrix ? (bottomInset - topInset) / 2 : 12;
+  const verticalOffset = includeMatrix ? (bottomInset - topInset) / 2 : (safe.bottom - safe.top) / 2;
   const y = coordinate((bounds.top + bounds.bottom) / 2 + verticalOffset / scale);
   if (instant) {
     cancelCameraAnimation();
@@ -5220,10 +5288,11 @@ const CanvasViews = (() => {
       }
     }
 
+    if (isFocused() && hidden.has(focused.id)) focused = null;
     if (isFocused()) {
       const branch = new Set(CanvasLayout.subtree(tree, focused.id));
       for (const node of current.nodes) {
-        if (!branch.has(node.id)) dimmed.add(node.id);
+        if (!branch.has(node.id)) hidden.add(node.id);
       }
     }
 
@@ -5389,15 +5458,38 @@ const CanvasViews = (() => {
   }
 
   function focus(id = noteIds()[0]) {
-    if (!nodeBy(id)) return toast('先选中要聚焦的节点');
+    if (!nodeBy(id)) return toast('先选中要查看的分支');
+    if (inlineEdit) finishInline({ keepFocus: true });
     if (!isFocused()) focused = { boardId: board().id, id, camera: { ...camera } };
     focused.id = id;
     close();
+    if (board().settings.folded.includes(id)) toggleFold(id);
     const tree = graph();
     const { hidden } = visibility(tree);
     const branch = CanvasLayout.subtree(tree, id).filter(member => !hidden.has(member));
-    fitNodes(branch.length ? branch : [id], true, id);
     render();
+    fitNodes(branch.length ? branch : [id], true, id);
+  }
+
+  function renderFocusPath(id) {
+    const path = [];
+    for (let cursor = id; cursor; cursor = graph().parent.get(cursor)) path.unshift(cursor);
+    const crumbs = path.slice(-4);
+    const parts = [];
+    if (crumbs.length < path.length) parts.push(Object.assign(document.createElement('span'), { className: 'focus-path-sep', textContent: '…' }));
+    crumbs.forEach((nodeId, index) => {
+      if (parts.length) parts.push(Object.assign(document.createElement('span'), { className: 'focus-path-sep', textContent: '›' }));
+      const label = titleOf(nodeBy(nodeId));
+      if (index === crumbs.length - 1) {
+        parts.push(Object.assign(document.createElement('strong'), { className: 'focus-path-current', textContent: label, title: label }));
+        return;
+      }
+      const crumb = Object.assign(document.createElement('button'), { type: 'button', className: 'focus-path-crumb', textContent: label, title: '只看「' + label + '」' });
+      crumb.dataset.viewAction = 'focus-node';
+      crumb.dataset.viewId = nodeId;
+      parts.push(crumb);
+    });
+    $('#view-focus-name').replaceChildren(...parts);
   }
 
   function exitFocus() {
@@ -5428,7 +5520,7 @@ const CanvasViews = (() => {
     const active = isFocused();
     const strip = $('#view-focus-strip');
     strip.hidden = !active;
-    if (active) $('#view-focus-name').textContent = '聚焦于「' + titleOf(nodeBy(focused.id)) + '」';
+    if (active) renderFocusPath(focused.id);
 
     const graphNow = graph();
     const { filtering, matched } = visibility(graphNow);
@@ -6107,7 +6199,8 @@ const CanvasViews = (() => {
     close,
     'clear-filter': () => { filter = freshFilter(); render(); },
     focus: () => { if (noteIds().length === 1) { focus(noteIds()[0]); focusCanvas(); } },
-    'exit-focus': () => { exitFocus(); focusCanvas(); },
+    'exit-focus': () => { if (inlineEdit) finishInline({ keepFocus: true }); exitFocus(); focusCanvas(); },
+    'focus-node': id => { focus(id); focusCanvas(); },
     'expand-all': expandAll,
     'single-branch': () => applyChange(() => { board().settings.singleBranch = !board().settings.singleBranch; }),
     fold: id => toggleFold(id, true),
@@ -6215,6 +6308,8 @@ function paintView() {
   viewport.style.backgroundPosition = (left % spacing) + 'px ' + (top % spacing) + 'px';
   viewport.classList.toggle('is-overview', camera.scale < .6);
   viewport.classList.toggle('is-zoomed-out', camera.scale < .48);
+  viewport.classList.toggle('is-far', camera.scale < .3);
+  viewport.style.setProperty('--glance-scale', Math.max(.025, Math.round(camera.scale * 40) / 40));
   $('#zoom-value').textContent = Math.round(camera.scale * 100) + '%';
   positionSelectionBar();
   positionSourcePopover();
@@ -6222,15 +6317,20 @@ function paintView() {
 }
 
 function reveal(node, center = false) {
-  const rect = cardRect(node);
+  const { x, y, w, h } = cardRect(node);
   const { width, height } = viewportSize();
+  const safe = canvasSafeInsets();
   const zoom = Math.max(camera.scale, .7);
-  const { x, y, w, h } = rect;
-  const dx = (x + w / 2 - camera.x) * camera.scale;
-  const dy = (y + h / 2 - camera.y) * camera.scale;
-  if (center || Math.abs(dx) + w * camera.scale / 2 > width / 2 - 45 ||
-      Math.abs(dy) + h * camera.scale / 2 > height / 2 - 68) {
-    animateCamera({ x: x + w / 2, y: y + h / 2, scale: zoom }, { duration: 240 });
+  const left = width / 2 + (x - camera.x) * camera.scale;
+  const top = height / 2 + (y - camera.y) * camera.scale;
+  const outside = left < safe.left || left + w * camera.scale > width - safe.right ||
+    top < safe.top || top + h * camera.scale > height - safe.bottom;
+  if (center || outside) {
+    animateCamera({
+      x: x + w / 2 - (safe.left - safe.right) / (2 * zoom),
+      y: y + h / 2 - (safe.top - safe.bottom) / (2 * zoom),
+      scale: zoom,
+    }, { duration: 240 });
   }
 }
 
@@ -6609,14 +6709,10 @@ const priorityLabels = {
   star: ['★', '星标'], low: ['↓', '低优先级'], medium: ['●', '中优先级'], high: ['↑', '高优先级'],
 };
 
-function cardChip(label, { color, mark, isStatus = false, id, pin = false, subBoardId = null, progress = null, sourcesForId = null, expanded = false } = {}) {
-  const chip = document.createElement(isStatus || subBoardId || sourcesForId ? 'button' : 'span');
+function cardChip(label, { color, mark, pin = false, subBoardId = null, progress = null, sourcesForId = null, expanded = false } = {}) {
+  const chip = document.createElement(subBoardId || sourcesForId ? 'button' : 'span');
   chip.className = 'card-chip';
-  if (isStatus) {
-    chip.type = 'button';
-    chip.dataset.cardStatus = id;
-    chip.setAttribute('aria-label', '更改状态 · ' + label);
-  } else if (subBoardId) {
+  if (subBoardId) {
     chip.type = 'button';
     chip.className += ' is-subboard';
     chip.dataset.subboard = subBoardId;
@@ -6808,7 +6904,6 @@ function decorateCard(view, node, settings, statusBy, tagBy) {
     const chips = [];
     if (subBoard) chips.push(cardChip(`子画布 · ${subBoard.nodes.length} 张卡`, { subBoardId: subBoard.id }));
     if (progress) chips.push(cardChip(`✓ ${progress.done}/${progress.total}`, { progress }));
-    if (status) chips.push(cardChip(status.name, { color: status.color, mark: status.icon, isStatus: true, id: node.id }));
     for (const tag of tags) chips.push(cardChip(tag.name, { color: tag.color }));
     if (priority) chips.push(cardChip(priority[1], { mark: priority[0] }));
     if (node.pinned) chips.push(cardChip('已固定', { pin: true }));
@@ -6818,10 +6913,18 @@ function decorateCard(view, node, settings, statusBy, tagBy) {
     }
     view.meta.replaceChildren(...chips);
     view.meta.hidden = !chips.length;
+    view.status.hidden = !status;
+    if (status) {
+      view.status.style.setProperty('--chip-ink', status.color);
+      view.status.lastElementChild.textContent = status.name;
+      view.status.title = status.name;
+      view.status.setAttribute('aria-label', '更改状态 · ' + status.name);
+    }
     view.metaKey = metaKey;
   }
+  element.toggleAttribute('data-has-status', !!status);
   element.toggleAttribute('data-intrinsic',
-    (element.dataset.profile === 'title' || element.dataset.profile === 'empty') && (!view.meta.hidden || !!style.size));
+    (element.dataset.profile === 'title' || element.dataset.profile === 'empty') && (!view.meta.hidden || !!status || !!style.size));
 }
 
 function foldSide(node, children, byId, lanes, mode) {
@@ -6840,7 +6943,9 @@ function createCardView(id) {
   element.className = 'card';
   element.tabIndex = 0;
   element.dataset.card = id;
-  element.innerHTML = '<div class="card-copy"><div class="card-type"></div><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><div class="card-meta" hidden></div></div>' +
+  element.innerHTML = '<div class="card-copy"><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><button type="button" class="done-toggle" data-done-toggle hidden></button><div class="card-meta" hidden></div></div>' +
+    '<button type="button" tabindex="-1" class="card-status" data-card-status hidden><i></i><span></span></button>' +
+    '<div class="card-glance" aria-hidden="true"><span></span></div>' +
     '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="top" aria-label="从上方连线" title="拖动连线"></button>' +
     '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="right" aria-label="从右侧连线" title="拖动连线"></button>' +
     '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="bottom" aria-label="从下方连线" title="拖动连线"></button>' +
@@ -6851,10 +6956,12 @@ function createCardView(id) {
   cardSizes.observe(element);
   const view = {
     element,
-    type: element.querySelector('.card-type'),
     title: element.querySelector('.card-title'),
+    status: element.querySelector('.card-status'),
+    glance: element.querySelector('.card-glance span'),
     cover: element.querySelector('.card-cover'),
     body: element.querySelector('.card-body'),
+    doneToggle: element.querySelector('.done-toggle'),
     meta: element.querySelector('.card-meta'),
     fold: element.querySelector('.card-fold'),
   };
@@ -6887,17 +6994,18 @@ function renderCards(nodes = board().nodes) {
     const profile = settings.detail === 'title' && content !== 'empty' ? 'title' : content;
     const prevProfile = view.element.dataset.profile;
     const prevDetail = view.element.dataset.detail;
+    const prevTone = view.element.dataset.tone;
+    const prevDepth = view.element.dataset.depth;
     const prevTitle = view.title.textContent;
     const prevWidth = view.element.style.maxWidth;
-    if (view.element.dataset.tone !== node.tone) {
-      view.element.dataset.tone = node.tone;
-      view.type.innerHTML = icon(node.tone) + '<span>' + CanvasData.tone[node.tone].label + '</span>';
-    }
+    const nextDepth = String(Math.min(nodeDepths.get(node.id) ?? 0, 3));
+    view.element.dataset.tone = node.tone;
+    view.element.dataset.depth = nextDepth;
     view.element.dataset.profile = profile;
-    view.element.setAttribute('aria-label', titleOf(node));
-    view.type.hidden = profile === 'empty' || (node.tone === 'idea' && profile !== 'title');
+    view.element.setAttribute('aria-label', CanvasData.tone[node.tone].label + ' · ' + titleOf(node));
     view.title.hidden = !node.title.trim() && (profile === 'note' || profile === 'image');
     view.title.textContent = profile === 'empty' ? '待补充' : titleOf(node);
+    view.glance.textContent = view.title.textContent;
     const contentChanged = view.plain !== node.body || view.rich !== node.richBody;
     if (contentChanged) {
       view.plain = node.body;
@@ -6917,6 +7025,9 @@ function renderCards(nodes = board().nodes) {
       } else {
         view.body.replaceChildren();
       }
+      const doneCount = view.body.querySelectorAll('.checklist-item[data-done="true"]').length;
+      view.doneToggle.hidden = !doneCount;
+      if (doneCount) view.doneToggle.textContent = `已完成 ${doneCount} 项`;
     }
     view.body.hidden = !node.body.trim() && !view.body.querySelector('img');
     const prevMetaKey = view.metaKey;
@@ -6934,6 +7045,7 @@ function renderCards(nodes = board().nodes) {
     } else delete view.element.dataset.foldSide;
     placeCard(view.element, node);
     if (contentChanged || prevProfile !== profile || prevDetail !== settings.detail ||
+        prevTone !== node.tone || prevDepth !== nextDepth ||
         prevTitle !== view.title.textContent || prevMetaKey !== view.metaKey || prevWidth !== view.element.style.maxWidth) {
       view.size = null;
     }
@@ -7330,8 +7442,31 @@ function scheduleMap() {
   if (!mapFrame) mapFrame = requestAnimationFrame(paintMap);
 }
 
+const chromeIslands = ['.bar-left', '.search-trigger', '.bar-right', '.rail', '#map-panel', '.float-controls'];
+
+function paintChromeCover(rects) {
+  const area = viewport.getBoundingClientRect();
+  const toWorldX = px => camera.x + (px - area.left - area.width / 2) / camera.scale;
+  const toWorldY = py => camera.y + (py - area.top - area.height / 2) / camera.scale;
+  for (const selector of chromeIslands) {
+    const island = $(selector);
+    if (!island) continue;
+    const box = island.getBoundingClientRect();
+    const left = toWorldX(box.left);
+    const right = toWorldX(box.right);
+    const top = toWorldY(box.top);
+    const bottom = toWorldY(box.bottom);
+    const covering = box.width > 0 && box.height > 0 &&
+      rects.some(r => r.x < right && r.x + r.w > left && r.y < bottom && r.y + r.h > top);
+    island.classList.toggle('is-covering', covering);
+  }
+}
+
 function paintMap() {
   mapFrame = 0;
+  const positions = activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions;
+  const nodes = new Map(effectiveNodes(positions).filter(node => !visibility.hidden.has(node.id)).map(node => [node.id, cardRect(node)]));
+  paintChromeCover([...nodes.values()]);
   const width = minimap.clientWidth;
   const height = minimap.clientHeight;
   if (!width || !height) return;
@@ -7345,11 +7480,11 @@ function paintMap() {
   const dark = isDarkHex(current.settings.appearance.background);
   const accent = current.settings.appearance.accent || (dark ? '#10b981' : '#0f766e');
   const topicColor = mixHex(accent, '#0b171d', 0.56);
+  const softTopicColor = mixHex(accent, dark ? '#181c24' : '#ffffff', 0.7);
   const viewportSizeNow = viewportSize();
   const visibleWidth = viewportSizeNow.width / camera.scale;
   const visibleHeight = viewportSizeNow.height / camera.scale;
-  const positions = activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions;
-  const shown = effectiveNodes(positions).filter(node => !visibility.hidden.has(node.id));
+  const shown = [...nodes.values()];
   const frameBoxes = current.settings.frames
     .map(frame => ({ frame, box: CanvasViews.frameRect(frame, positions, visibility.hidden) }))
     .filter(item => item.box);
@@ -7387,7 +7522,6 @@ function paintMap() {
   ctx.lineWidth = 1;
   ctx.strokeStyle = dark ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.35)';
   ctx.beginPath();
-  const nodes = new Map(shown.map(node => [node.id, cardRect(node)]));
   for (const { from, to } of current.edges) {
     const a = nodes.get(from);
     const b = nodes.get(to);
@@ -7399,7 +7533,8 @@ function paintMap() {
   const selectedSet = selection.kind === 'cards' ? selection.ids : null;
   for (const node of nodes.values()) {
     const customFill = node.style?.fill || inheritedBranches.get(node.id)?.color || current.settings.appearance.card.fill;
-    ctx.fillStyle = customFill || (node.tone === 'topic' ? topicColor : dark ? '#334155' : '#cbd5e1');
+    const topicFill = (nodeDepths.get(node.id) ?? 0) >= 3 ? softTopicColor : topicColor;
+    ctx.fillStyle = customFill || (node.tone === 'topic' ? topicFill : dark ? '#334155' : '#cbd5e1');
     ctx.globalAlpha = visibility.dimmed.has(node.id) ? .28 : .92;
     const rw = Math.max(3, node.w * scale);
     const rh = Math.max(2.5, node.h * scale);
@@ -8121,8 +8256,6 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
       const createdView = createCardView(node.id);
       createdView.element.dataset.tone = node.tone;
       createdView.element.dataset.profile = 'note';
-      createdView.type.innerHTML = icon(node.tone) + '<span>' + CanvasData.tone[node.tone].label + '</span>';
-      createdView.type.hidden = node.tone === 'idea';
       placeCard(createdView.element, node);
     }
   } else {
@@ -8164,8 +8297,6 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
       if (!inlineEdit) return;
       inlineEdit.tone = key;
       view.element.dataset.tone = key;
-      view.type.innerHTML = icon(key) + '<span>' + CanvasData.tone[key].label + '</span>';
-      view.type.hidden = key === 'idea';
       for (const btn of toneDots) btn.setAttribute('aria-pressed', String(btn === dot));
       syncInline();
     });
@@ -8648,7 +8779,7 @@ function paletteCommands() {
     { id: 'fit', label: '查看全图', icon: 'fit', keys: 'F', words: 'fit zoom overview' },
     { id: 'toggle-dark', label: dark ? '切换为浅色外观' : '切换为深色外观', icon: 'theme', words: 'dark light theme 主题 深色 浅色' },
     { id: 'expand-all', label: '展开全部分支', icon: 'expand', when: current.settings.folded.length > 0, words: 'expand unfold', run: () => CanvasViews.expandAll() },
-    { id: 'focus-branch', label: '聚焦选中分支', icon: 'target', when: !!chosenCard(), words: 'focus' },
+    { id: 'focus-branch', label: '只看选中分支', icon: 'target', when: !!chosenCard(), words: 'focus' },
     { id: 'outline', label: '打开大纲', icon: 'outline', words: 'outline tree' },
     { id: 'view-options', label: '打开视图与筛选', icon: 'view', words: 'filter view 筛选' },
     { id: 'inspector', label: '打开样式面板', icon: 'style', words: 'style color 颜色' },
@@ -9000,6 +9131,7 @@ const CanvasExport = (() => {
           continue;
         }
         if (child.nodeType !== Node.ELEMENT_NODE) continue;
+        if (getComputedStyle(child).display === 'none') continue;
         if (child.tagName === 'BR') {
           out += '\n';
           continue;
@@ -9034,19 +9166,6 @@ const CanvasExport = (() => {
       fill, fill2, stroke: color(style.borderTopColor), strokeWidth: parseFloat(style.borderTopWidth) || 0,
       shadow: !isTransparent(fill),
     });
-    const typeBox = !view.type.hidden && boxIn(view.type, card);
-    if (typeBox) {
-      const typeStyle = getComputedStyle(view.type);
-      const pill = color(typeStyle.backgroundColor);
-      if (!isTransparent(pill)) shapes.push({ type: 'rect', x: x + typeBox.x, y: y + typeBox.y, w: typeBox.w, h: typeBox.h, r: typeBox.h / 2, fill: pill });
-      const label = view.type.querySelector('span');
-      const labelBox = label && boxIn(label, card);
-      if (labelBox) {
-        const dotX = x + typeBox.x + Math.max(4, (labelBox.x - typeBox.x - 5.5) / 2);
-        shapes.push({ type: 'rect', x: dotX, y: y + typeBox.y + typeBox.h / 2 - 2.75, w: 5.5, h: 5.5, r: 2.75, fill: color(typeStyle.color, '#0f766e') });
-        shapes.push({ ...textShape(x, y, labelBox, label, label.textContent, 1), lineHeight: labelBox.h });
-      }
-    }
     const titleBox = !view.title.hidden && boxIn(view.title, card);
     if (titleBox) {
       const font = fontOf(view.title);
@@ -9073,6 +9192,7 @@ const CanvasExport = (() => {
         const cardRectBox = card.getBoundingClientRect();
         const domScale = cardRectBox.width && card.offsetWidth ? cardRectBox.width / card.offsetWidth : 1;
         const emitBodyNode = item => {
+          if (item.nodeType === Node.ELEMENT_NODE && getComputedStyle(item).display === 'none') return;
           if (item.nodeType === Node.TEXT_NODE) {
             const text = item.textContent.trim();
             if (!text) return;
@@ -9110,6 +9230,11 @@ const CanvasExport = (() => {
         };
         for (const child of view.body.childNodes) emitBodyNode(child);
       }
+    }
+    if (!view.status.hidden) {
+      const dot = view.status.querySelector('i');
+      const dotBox = dot && boxIn(dot, card);
+      if (dotBox) shapes.push({ type: 'rect', x: x + dotBox.x, y: y + dotBox.y, w: dotBox.w, h: dotBox.h, r: dotBox.h / 2, fill: color(getComputedStyle(dot).backgroundColor) });
     }
     if (view.meta.hidden) return;
     for (const chip of view.meta.children) {
@@ -9944,7 +10069,7 @@ function beginPointer(event) {
   }
   const pan = spaceHeld || mode === 'hand' || event.button === 1;
   if (event.button > 2 || modalOpen() || layoutDraft ||
-      (!pan && mode !== 'link' && event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-subboard],a[href],.canvas-frame-input'))) return;
+      (!pan && mode !== 'link' && event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-done-toggle],[data-subboard],a[href],.canvas-frame-input'))) return;
   const here = point(event);
   lastPointerLocal = here;
   if (event.pointerType === 'touch') {
@@ -10848,6 +10973,11 @@ viewport.addEventListener('click', event => {
     openLightbox(clickedImg.src, clickedImg.alt);
     return;
   }
+  const doneToggle = event.target.closest('[data-done-toggle]');
+  if (doneToggle && !layoutDraft) {
+    doneToggle.closest('.card').toggleAttribute('data-show-done');
+    return;
+  }
   const sourcesBtn = event.target.closest('[data-card-sources]');
   if (sourcesBtn && !layoutDraft) {
     openSourcePopover(sourcesBtn.dataset.cardSources);
@@ -10867,7 +10997,7 @@ viewport.addEventListener('click', event => {
 });
 viewport.addEventListener('dblclick', event => {
   if (mode !== 'select' || spaceHeld || modalOpen() || layoutDraft ||
-      event.target.closest('[data-handle],[data-card-fold],[data-card-status],[data-card-sources],[data-card-check],[data-subboard],a[href],.card.is-editing') ||
+      event.target.closest('[data-handle],[data-card-fold],[data-card-status],[data-card-sources],[data-card-check],[data-done-toggle],[data-subboard],a[href],.card.is-editing') ||
       performance.now() < suppressClickUntil) return;
   const frameHandleId = event.target.closest('[data-frame-handle]')?.dataset.frameHandle;
   if (frameHandleId) {

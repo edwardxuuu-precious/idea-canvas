@@ -10,7 +10,7 @@ function beginPointer(event) {
   }
   const pan = spaceHeld || mode === 'hand' || event.button === 1;
   if (event.button > 2 || modalOpen() || layoutDraft ||
-      (!pan && mode !== 'link' && event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-subboard],a[href],.canvas-frame-input'))) return;
+      (!pan && mode !== 'link' && event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-done-toggle],[data-subboard],a[href],.canvas-frame-input'))) return;
   const here = point(event);
   lastPointerLocal = here;
   if (event.pointerType === 'touch') {
@@ -914,6 +914,11 @@ viewport.addEventListener('click', event => {
     openLightbox(clickedImg.src, clickedImg.alt);
     return;
   }
+  const doneToggle = event.target.closest('[data-done-toggle]');
+  if (doneToggle && !layoutDraft) {
+    doneToggle.closest('.card').toggleAttribute('data-show-done');
+    return;
+  }
   const sourcesBtn = event.target.closest('[data-card-sources]');
   if (sourcesBtn && !layoutDraft) {
     openSourcePopover(sourcesBtn.dataset.cardSources);
@@ -933,7 +938,7 @@ viewport.addEventListener('click', event => {
 });
 viewport.addEventListener('dblclick', event => {
   if (mode !== 'select' || spaceHeld || modalOpen() || layoutDraft ||
-      event.target.closest('[data-handle],[data-card-fold],[data-card-status],[data-card-sources],[data-card-check],[data-subboard],a[href],.card.is-editing') ||
+      event.target.closest('[data-handle],[data-card-fold],[data-card-status],[data-card-sources],[data-card-check],[data-done-toggle],[data-subboard],a[href],.card.is-editing') ||
       performance.now() < suppressClickUntil) return;
   const frameHandleId = event.target.closest('[data-frame-handle]')?.dataset.frameHandle;
   if (frameHandleId) {

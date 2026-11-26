@@ -201,7 +201,7 @@
     <span class="selection-divider" aria-hidden="true"></span>
     <button type="button" class="icon-btn" data-action="edit-selected" title="编辑 (E)" aria-label="编辑"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg></button>
     <button type="button" class="icon-btn" data-action="branch-selected" title="添加分支 (Tab)" aria-label="添加分支"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg></button>
-    <button type="button" class="icon-btn" data-action="focus-branch" title="聚焦分支" aria-label="聚焦分支"><svg class="icon" aria-hidden="true"><use href="#i-target"/></svg></button>
+    <button type="button" class="icon-btn" data-action="focus-branch" title="只看这个分支" aria-label="只看这个分支"><svg class="icon" aria-hidden="true"><use href="#i-target"/></svg></button>
     <button type="button" class="icon-btn" id="align-menu-btn" data-action="align-menu" title="对齐和分布" aria-label="对齐和分布" aria-expanded="false" aria-controls="align-popover" hidden><svg class="icon" aria-hidden="true"><use href="#i-align"/></svg></button>
     <button type="button" class="icon-btn" id="selection-more-btn" data-action="selection-more" title="更多操作" aria-label="更多操作" aria-expanded="false" aria-controls="selection-more-popover"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button>
     <button type="button" class="icon-btn btn-danger" data-action="remove" title="删除选中项目 (Delete)" aria-label="删除选中项目"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>
@@ -314,7 +314,7 @@
     <fieldset class="canvas-view-section">
       <legend>分支</legend>
       <div class="canvas-view-actions">
-        <button type="button" class="btn btn-outline" data-view-action="focus">聚焦选中分支</button>
+        <button type="button" class="btn btn-outline" data-view-action="focus">只看选中分支</button>
         <button type="button" class="btn btn-quiet" data-view-action="expand-all">展开全部</button>
         <button type="button" class="btn btn-quiet" data-view-action="single-branch" aria-pressed="false" title="展开某张卡时自动收起同级其他分支（按住 Option 点击折叠钮可临时切换）">同级自动收起</button>
       </div>
@@ -361,8 +361,8 @@
 </aside>
 <div class="view-status-stack">
   <div class="view-focus-strip" id="view-focus-strip" role="status" hidden>
-    <span id="view-focus-name"></span>
-    <button type="button" class="btn btn-outline" data-view-action="exit-focus">退出聚焦 <kbd>Esc</kbd></button>
+    <nav id="view-focus-name" class="focus-path" aria-label="分支路径"></nav>
+    <button type="button" class="btn btn-outline" data-view-action="exit-focus">看全部 <kbd>Esc</kbd></button>
   </div>
   <div class="view-focus-strip" id="view-filter-strip" role="status" hidden>
     <span id="view-filter-strip-text"></span>

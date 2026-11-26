@@ -53,10 +53,11 @@ const CanvasViews = (() => {
       }
     }
 
+    if (isFocused() && hidden.has(focused.id)) focused = null;
     if (isFocused()) {
       const branch = new Set(CanvasLayout.subtree(tree, focused.id));
       for (const node of current.nodes) {
-        if (!branch.has(node.id)) dimmed.add(node.id);
+        if (!branch.has(node.id)) hidden.add(node.id);
       }
     }
 
@@ -222,15 +223,38 @@ const CanvasViews = (() => {
   }
 
   function focus(id = noteIds()[0]) {
-    if (!nodeBy(id)) return toast('先选中要聚焦的节点');
+    if (!nodeBy(id)) return toast('先选中要查看的分支');
+    if (inlineEdit) finishInline({ keepFocus: true });
     if (!isFocused()) focused = { boardId: board().id, id, camera: { ...camera } };
     focused.id = id;
     close();
+    if (board().settings.folded.includes(id)) toggleFold(id);
     const tree = graph();
     const { hidden } = visibility(tree);
     const branch = CanvasLayout.subtree(tree, id).filter(member => !hidden.has(member));
-    fitNodes(branch.length ? branch : [id], true, id);
     render();
+    fitNodes(branch.length ? branch : [id], true, id);
+  }
+
+  function renderFocusPath(id) {
+    const path = [];
+    for (let cursor = id; cursor; cursor = graph().parent.get(cursor)) path.unshift(cursor);
+    const crumbs = path.slice(-4);
+    const parts = [];
+    if (crumbs.length < path.length) parts.push(Object.assign(document.createElement('span'), { className: 'focus-path-sep', textContent: '…' }));
+    crumbs.forEach((nodeId, index) => {
+      if (parts.length) parts.push(Object.assign(document.createElement('span'), { className: 'focus-path-sep', textContent: '›' }));
+      const label = titleOf(nodeBy(nodeId));
+      if (index === crumbs.length - 1) {
+        parts.push(Object.assign(document.createElement('strong'), { className: 'focus-path-current', textContent: label, title: label }));
+        return;
+      }
+      const crumb = Object.assign(document.createElement('button'), { type: 'button', className: 'focus-path-crumb', textContent: label, title: '只看「' + label + '」' });
+      crumb.dataset.viewAction = 'focus-node';
+      crumb.dataset.viewId = nodeId;
+      parts.push(crumb);
+    });
+    $('#view-focus-name').replaceChildren(...parts);
   }
 
   function exitFocus() {
@@ -261,7 +285,7 @@ const CanvasViews = (() => {
     const active = isFocused();
     const strip = $('#view-focus-strip');
     strip.hidden = !active;
-    if (active) $('#view-focus-name').textContent = '聚焦于「' + titleOf(nodeBy(focused.id)) + '」';
+    if (active) renderFocusPath(focused.id);
 
     const graphNow = graph();
     const { filtering, matched } = visibility(graphNow);
@@ -940,7 +964,8 @@ const CanvasViews = (() => {
     close,
     'clear-filter': () => { filter = freshFilter(); render(); },
     focus: () => { if (noteIds().length === 1) { focus(noteIds()[0]); focusCanvas(); } },
-    'exit-focus': () => { exitFocus(); focusCanvas(); },
+    'exit-focus': () => { if (inlineEdit) finishInline({ keepFocus: true }); exitFocus(); focusCanvas(); },
+    'focus-node': id => { focus(id); focusCanvas(); },
     'expand-all': expandAll,
     'single-branch': () => applyChange(() => { board().settings.singleBranch = !board().settings.singleBranch; }),
     fold: id => toggleFold(id, true),

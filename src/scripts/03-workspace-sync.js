@@ -64,7 +64,23 @@ const clamp = (number, low, high) => Math.max(low, Math.min(high, number));
 const coordinate = value => clamp(value, -1e9, 1e9);
 const titleOf = node => node.title.trim() || '未命名卡片';
 const prefersReducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-const chromeTopLimit = () => Math.round(($('.bar')?.getBoundingClientRect().bottom || 56) + 10);
+const chromeTopLimit = () => {
+  const barBottom = ($('.bar')?.getBoundingClientRect().bottom || 56) + 10;
+  const strips = [...document.querySelectorAll('.view-status-stack > :not([hidden])')]
+    .map(strip => strip.getBoundingClientRect().bottom + 10);
+  return Math.round(Math.max(barBottom, ...strips));
+};
+
+function canvasSafeInsets() {
+  const area = viewport.getBoundingClientRect();
+  const rail = $('.rail')?.getBoundingClientRect();
+  return {
+    top: Math.max(0, chromeTopLimit() - area.top),
+    bottom: rail?.height ? Math.max(0, area.bottom - rail.top + 10) : 24,
+    left: 16,
+    right: 16,
+  };
+}
 
 let selection = noSelection();
 let camera = { x: 0, y: 0, scale: 1 };
@@ -812,7 +828,9 @@ function fitNodes(ids, temporary = false, anchorId = null, { instant = false } =
   const key = $('#matrix-key');
   const topInset = includeMatrix ? key.offsetTop + key.offsetHeight + 18 : 0;
   const bottomInset = includeMatrix ? 58 : 0;
-  const usableHeight = height - (includeMatrix ? topInset + bottomInset : marginY);
+  const safe = canvasSafeInsets();
+  const usableHeight = includeMatrix ? height - topInset - bottomInset
+    : Math.max(120, Math.min(height - marginY, height - safe.top - safe.bottom - 24));
   let scale = clamp(Math.min((usefulWidth - marginX) / bounds.w, usableHeight / bounds.h), .08, 1.15);
   if (anchorId && scale < .8) {
     const anchor = nodes.find(node => node.id === anchorId) || nodes[0];
@@ -837,7 +855,7 @@ function fitNodes(ids, temporary = false, anchorId = null, { instant = false } =
     scale = .8;
   }
   const x = coordinate((bounds.left + bounds.right) / 2 + drawerWidth / (2 * scale));
-  const verticalOffset = includeMatrix ? (bottomInset - topInset) / 2 : 12;
+  const verticalOffset = includeMatrix ? (bottomInset - topInset) / 2 : (safe.bottom - safe.top) / 2;
   const y = coordinate((bounds.top + bounds.bottom) / 2 + verticalOffset / scale);
   if (instant) {
     cancelCameraAnimation();

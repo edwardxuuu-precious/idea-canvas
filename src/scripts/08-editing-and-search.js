@@ -678,8 +678,6 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
       const createdView = createCardView(node.id);
       createdView.element.dataset.tone = node.tone;
       createdView.element.dataset.profile = 'note';
-      createdView.type.innerHTML = icon(node.tone) + '<span>' + CanvasData.tone[node.tone].label + '</span>';
-      createdView.type.hidden = node.tone === 'idea';
       placeCard(createdView.element, node);
     }
   } else {
@@ -721,8 +719,6 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
       if (!inlineEdit) return;
       inlineEdit.tone = key;
       view.element.dataset.tone = key;
-      view.type.innerHTML = icon(key) + '<span>' + CanvasData.tone[key].label + '</span>';
-      view.type.hidden = key === 'idea';
       for (const btn of toneDots) btn.setAttribute('aria-pressed', String(btn === dot));
       syncInline();
     });
@@ -1205,7 +1201,7 @@ function paletteCommands() {
     { id: 'fit', label: '查看全图', icon: 'fit', keys: 'F', words: 'fit zoom overview' },
     { id: 'toggle-dark', label: dark ? '切换为浅色外观' : '切换为深色外观', icon: 'theme', words: 'dark light theme 主题 深色 浅色' },
     { id: 'expand-all', label: '展开全部分支', icon: 'expand', when: current.settings.folded.length > 0, words: 'expand unfold', run: () => CanvasViews.expandAll() },
-    { id: 'focus-branch', label: '聚焦选中分支', icon: 'target', when: !!chosenCard(), words: 'focus' },
+    { id: 'focus-branch', label: '只看选中分支', icon: 'target', when: !!chosenCard(), words: 'focus' },
     { id: 'outline', label: '打开大纲', icon: 'outline', words: 'outline tree' },
     { id: 'view-options', label: '打开视图与筛选', icon: 'view', words: 'filter view 筛选' },
     { id: 'inspector', label: '打开样式面板', icon: 'style', words: 'style color 颜色' },

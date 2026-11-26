@@ -23,6 +23,8 @@ function paintView() {
   viewport.style.backgroundPosition = (left % spacing) + 'px ' + (top % spacing) + 'px';
   viewport.classList.toggle('is-overview', camera.scale < .6);
   viewport.classList.toggle('is-zoomed-out', camera.scale < .48);
+  viewport.classList.toggle('is-far', camera.scale < .3);
+  viewport.style.setProperty('--glance-scale', Math.max(.025, Math.round(camera.scale * 40) / 40));
   $('#zoom-value').textContent = Math.round(camera.scale * 100) + '%';
   positionSelectionBar();
   positionSourcePopover();
@@ -30,15 +32,20 @@ function paintView() {
 }
 
 function reveal(node, center = false) {
-  const rect = cardRect(node);
+  const { x, y, w, h } = cardRect(node);
   const { width, height } = viewportSize();
+  const safe = canvasSafeInsets();
   const zoom = Math.max(camera.scale, .7);
-  const { x, y, w, h } = rect;
-  const dx = (x + w / 2 - camera.x) * camera.scale;
-  const dy = (y + h / 2 - camera.y) * camera.scale;
-  if (center || Math.abs(dx) + w * camera.scale / 2 > width / 2 - 45 ||
-      Math.abs(dy) + h * camera.scale / 2 > height / 2 - 68) {
-    animateCamera({ x: x + w / 2, y: y + h / 2, scale: zoom }, { duration: 240 });
+  const left = width / 2 + (x - camera.x) * camera.scale;
+  const top = height / 2 + (y - camera.y) * camera.scale;
+  const outside = left < safe.left || left + w * camera.scale > width - safe.right ||
+    top < safe.top || top + h * camera.scale > height - safe.bottom;
+  if (center || outside) {
+    animateCamera({
+      x: x + w / 2 - (safe.left - safe.right) / (2 * zoom),
+      y: y + h / 2 - (safe.top - safe.bottom) / (2 * zoom),
+      scale: zoom,
+    }, { duration: 240 });
   }
 }
 
@@ -417,14 +424,10 @@ const priorityLabels = {
   star: ['★', '星标'], low: ['↓', '低优先级'], medium: ['●', '中优先级'], high: ['↑', '高优先级'],
 };
 
-function cardChip(label, { color, mark, isStatus = false, id, pin = false, subBoardId = null, progress = null, sourcesForId = null, expanded = false } = {}) {
-  const chip = document.createElement(isStatus || subBoardId || sourcesForId ? 'button' : 'span');
+function cardChip(label, { color, mark, pin = false, subBoardId = null, progress = null, sourcesForId = null, expanded = false } = {}) {
+  const chip = document.createElement(subBoardId || sourcesForId ? 'button' : 'span');
   chip.className = 'card-chip';
-  if (isStatus) {
-    chip.type = 'button';
-    chip.dataset.cardStatus = id;
-    chip.setAttribute('aria-label', '更改状态 · ' + label);
-  } else if (subBoardId) {
+  if (subBoardId) {
     chip.type = 'button';
     chip.className += ' is-subboard';
     chip.dataset.subboard = subBoardId;
@@ -616,7 +619,6 @@ function decorateCard(view, node, settings, statusBy, tagBy) {
     const chips = [];
     if (subBoard) chips.push(cardChip(`子画布 · ${subBoard.nodes.length} 张卡`, { subBoardId: subBoard.id }));
     if (progress) chips.push(cardChip(`✓ ${progress.done}/${progress.total}`, { progress }));
-    if (status) chips.push(cardChip(status.name, { color: status.color, mark: status.icon, isStatus: true, id: node.id }));
     for (const tag of tags) chips.push(cardChip(tag.name, { color: tag.color }));
     if (priority) chips.push(cardChip(priority[1], { mark: priority[0] }));
     if (node.pinned) chips.push(cardChip('已固定', { pin: true }));
@@ -626,10 +628,18 @@ function decorateCard(view, node, settings, statusBy, tagBy) {
     }
     view.meta.replaceChildren(...chips);
     view.meta.hidden = !chips.length;
+    view.status.hidden = !status;
+    if (status) {
+      view.status.style.setProperty('--chip-ink', status.color);
+      view.status.lastElementChild.textContent = status.name;
+      view.status.title = status.name;
+      view.status.setAttribute('aria-label', '更改状态 · ' + status.name);
+    }
     view.metaKey = metaKey;
   }
+  element.toggleAttribute('data-has-status', !!status);
   element.toggleAttribute('data-intrinsic',
-    (element.dataset.profile === 'title' || element.dataset.profile === 'empty') && (!view.meta.hidden || !!style.size));
+    (element.dataset.profile === 'title' || element.dataset.profile === 'empty') && (!view.meta.hidden || !!status || !!style.size));
 }
 
 function foldSide(node, children, byId, lanes, mode) {
@@ -648,7 +658,9 @@ function createCardView(id) {
   element.className = 'card';
   element.tabIndex = 0;
   element.dataset.card = id;
-  element.innerHTML = '<div class="card-copy"><div class="card-type"></div><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><div class="card-meta" hidden></div></div>' +
+  element.innerHTML = '<div class="card-copy"><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><button type="button" class="done-toggle" data-done-toggle hidden></button><div class="card-meta" hidden></div></div>' +
+    '<button type="button" tabindex="-1" class="card-status" data-card-status hidden><i></i><span></span></button>' +
+    '<div class="card-glance" aria-hidden="true"><span></span></div>' +
     '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="top" aria-label="从上方连线" title="拖动连线"></button>' +
     '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="right" aria-label="从右侧连线" title="拖动连线"></button>' +
     '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="bottom" aria-label="从下方连线" title="拖动连线"></button>' +
@@ -659,10 +671,12 @@ function createCardView(id) {
   cardSizes.observe(element);
   const view = {
     element,
-    type: element.querySelector('.card-type'),
     title: element.querySelector('.card-title'),
+    status: element.querySelector('.card-status'),
+    glance: element.querySelector('.card-glance span'),
     cover: element.querySelector('.card-cover'),
     body: element.querySelector('.card-body'),
+    doneToggle: element.querySelector('.done-toggle'),
     meta: element.querySelector('.card-meta'),
     fold: element.querySelector('.card-fold'),
   };
@@ -695,17 +709,18 @@ function renderCards(nodes = board().nodes) {
     const profile = settings.detail === 'title' && content !== 'empty' ? 'title' : content;
     const prevProfile = view.element.dataset.profile;
     const prevDetail = view.element.dataset.detail;
+    const prevTone = view.element.dataset.tone;
+    const prevDepth = view.element.dataset.depth;
     const prevTitle = view.title.textContent;
     const prevWidth = view.element.style.maxWidth;
-    if (view.element.dataset.tone !== node.tone) {
-      view.element.dataset.tone = node.tone;
-      view.type.innerHTML = icon(node.tone) + '<span>' + CanvasData.tone[node.tone].label + '</span>';
-    }
+    const nextDepth = String(Math.min(nodeDepths.get(node.id) ?? 0, 3));
+    view.element.dataset.tone = node.tone;
+    view.element.dataset.depth = nextDepth;
     view.element.dataset.profile = profile;
-    view.element.setAttribute('aria-label', titleOf(node));
-    view.type.hidden = profile === 'empty' || (node.tone === 'idea' && profile !== 'title');
+    view.element.setAttribute('aria-label', CanvasData.tone[node.tone].label + ' · ' + titleOf(node));
     view.title.hidden = !node.title.trim() && (profile === 'note' || profile === 'image');
     view.title.textContent = profile === 'empty' ? '待补充' : titleOf(node);
+    view.glance.textContent = view.title.textContent;
     const contentChanged = view.plain !== node.body || view.rich !== node.richBody;
     if (contentChanged) {
       view.plain = node.body;
@@ -725,6 +740,9 @@ function renderCards(nodes = board().nodes) {
       } else {
         view.body.replaceChildren();
       }
+      const doneCount = view.body.querySelectorAll('.checklist-item[data-done="true"]').length;
+      view.doneToggle.hidden = !doneCount;
+      if (doneCount) view.doneToggle.textContent = `已完成 ${doneCount} 项`;
     }
     view.body.hidden = !node.body.trim() && !view.body.querySelector('img');
     const prevMetaKey = view.metaKey;
@@ -742,6 +760,7 @@ function renderCards(nodes = board().nodes) {
     } else delete view.element.dataset.foldSide;
     placeCard(view.element, node);
     if (contentChanged || prevProfile !== profile || prevDetail !== settings.detail ||
+        prevTone !== node.tone || prevDepth !== nextDepth ||
         prevTitle !== view.title.textContent || prevMetaKey !== view.metaKey || prevWidth !== view.element.style.maxWidth) {
       view.size = null;
     }
@@ -1138,8 +1157,31 @@ function scheduleMap() {
   if (!mapFrame) mapFrame = requestAnimationFrame(paintMap);
 }
 
+const chromeIslands = ['.bar-left', '.search-trigger', '.bar-right', '.rail', '#map-panel', '.float-controls'];
+
+function paintChromeCover(rects) {
+  const area = viewport.getBoundingClientRect();
+  const toWorldX = px => camera.x + (px - area.left - area.width / 2) / camera.scale;
+  const toWorldY = py => camera.y + (py - area.top - area.height / 2) / camera.scale;
+  for (const selector of chromeIslands) {
+    const island = $(selector);
+    if (!island) continue;
+    const box = island.getBoundingClientRect();
+    const left = toWorldX(box.left);
+    const right = toWorldX(box.right);
+    const top = toWorldY(box.top);
+    const bottom = toWorldY(box.bottom);
+    const covering = box.width > 0 && box.height > 0 &&
+      rects.some(r => r.x < right && r.x + r.w > left && r.y < bottom && r.y + r.h > top);
+    island.classList.toggle('is-covering', covering);
+  }
+}
+
 function paintMap() {
   mapFrame = 0;
+  const positions = activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions;
+  const nodes = new Map(effectiveNodes(positions).filter(node => !visibility.hidden.has(node.id)).map(node => [node.id, cardRect(node)]));
+  paintChromeCover([...nodes.values()]);
   const width = minimap.clientWidth;
   const height = minimap.clientHeight;
   if (!width || !height) return;
@@ -1153,11 +1195,11 @@ function paintMap() {
   const dark = isDarkHex(current.settings.appearance.background);
   const accent = current.settings.appearance.accent || (dark ? '#10b981' : '#0f766e');
   const topicColor = mixHex(accent, '#0b171d', 0.56);
+  const softTopicColor = mixHex(accent, dark ? '#181c24' : '#ffffff', 0.7);
   const viewportSizeNow = viewportSize();
   const visibleWidth = viewportSizeNow.width / camera.scale;
   const visibleHeight = viewportSizeNow.height / camera.scale;
-  const positions = activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions;
-  const shown = effectiveNodes(positions).filter(node => !visibility.hidden.has(node.id));
+  const shown = [...nodes.values()];
   const frameBoxes = current.settings.frames
     .map(frame => ({ frame, box: CanvasViews.frameRect(frame, positions, visibility.hidden) }))
     .filter(item => item.box);
@@ -1195,7 +1237,6 @@ function paintMap() {
   ctx.lineWidth = 1;
   ctx.strokeStyle = dark ? 'rgba(148, 163, 184, 0.35)' : 'rgba(100, 116, 139, 0.35)';
   ctx.beginPath();
-  const nodes = new Map(shown.map(node => [node.id, cardRect(node)]));
   for (const { from, to } of current.edges) {
     const a = nodes.get(from);
     const b = nodes.get(to);
@@ -1207,7 +1248,8 @@ function paintMap() {
   const selectedSet = selection.kind === 'cards' ? selection.ids : null;
   for (const node of nodes.values()) {
     const customFill = node.style?.fill || inheritedBranches.get(node.id)?.color || current.settings.appearance.card.fill;
-    ctx.fillStyle = customFill || (node.tone === 'topic' ? topicColor : dark ? '#334155' : '#cbd5e1');
+    const topicFill = (nodeDepths.get(node.id) ?? 0) >= 3 ? softTopicColor : topicColor;
+    ctx.fillStyle = customFill || (node.tone === 'topic' ? topicFill : dark ? '#334155' : '#cbd5e1');
     ctx.globalAlpha = visibility.dimmed.has(node.id) ? .28 : .92;
     const rw = Math.max(3, node.w * scale);
     const rh = Math.max(2.5, node.h * scale);

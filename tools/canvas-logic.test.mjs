@@ -347,7 +347,7 @@ test('CanvasExport includes matrix, timeline, and fishbone guides in full-board 
       getBoundingClientRect: () => ({ left: 0, top: 0, width: n.w, height: n.h }),
       querySelector: () => null,
     },
-    type: { hidden: true },
+    status: { hidden: true },
     title: { hidden: false, textContent: n.title, offsetLeft: 12, offsetTop: 12, offsetWidth: 160, offsetHeight: 24, offsetParent: null },
     body: { hidden: true, childNodes: [], querySelector: () => null, querySelectorAll: () => [] },
     meta: { hidden: true, children: [] },

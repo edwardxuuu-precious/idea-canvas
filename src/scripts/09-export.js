@@ -167,6 +167,7 @@ const CanvasExport = (() => {
           continue;
         }
         if (child.nodeType !== Node.ELEMENT_NODE) continue;
+        if (getComputedStyle(child).display === 'none') continue;
         if (child.tagName === 'BR') {
           out += '\n';
           continue;
@@ -201,19 +202,6 @@ const CanvasExport = (() => {
       fill, fill2, stroke: color(style.borderTopColor), strokeWidth: parseFloat(style.borderTopWidth) || 0,
       shadow: !isTransparent(fill),
     });
-    const typeBox = !view.type.hidden && boxIn(view.type, card);
-    if (typeBox) {
-      const typeStyle = getComputedStyle(view.type);
-      const pill = color(typeStyle.backgroundColor);
-      if (!isTransparent(pill)) shapes.push({ type: 'rect', x: x + typeBox.x, y: y + typeBox.y, w: typeBox.w, h: typeBox.h, r: typeBox.h / 2, fill: pill });
-      const label = view.type.querySelector('span');
-      const labelBox = label && boxIn(label, card);
-      if (labelBox) {
-        const dotX = x + typeBox.x + Math.max(4, (labelBox.x - typeBox.x - 5.5) / 2);
-        shapes.push({ type: 'rect', x: dotX, y: y + typeBox.y + typeBox.h / 2 - 2.75, w: 5.5, h: 5.5, r: 2.75, fill: color(typeStyle.color, '#0f766e') });
-        shapes.push({ ...textShape(x, y, labelBox, label, label.textContent, 1), lineHeight: labelBox.h });
-      }
-    }
     const titleBox = !view.title.hidden && boxIn(view.title, card);
     if (titleBox) {
       const font = fontOf(view.title);
@@ -240,6 +228,7 @@ const CanvasExport = (() => {
         const cardRectBox = card.getBoundingClientRect();
         const domScale = cardRectBox.width && card.offsetWidth ? cardRectBox.width / card.offsetWidth : 1;
         const emitBodyNode = item => {
+          if (item.nodeType === Node.ELEMENT_NODE && getComputedStyle(item).display === 'none') return;
           if (item.nodeType === Node.TEXT_NODE) {
             const text = item.textContent.trim();
             if (!text) return;
@@ -277,6 +266,11 @@ const CanvasExport = (() => {
         };
         for (const child of view.body.childNodes) emitBodyNode(child);
       }
+    }
+    if (!view.status.hidden) {
+      const dot = view.status.querySelector('i');
+      const dotBox = dot && boxIn(dot, card);
+      if (dotBox) shapes.push({ type: 'rect', x: x + dotBox.x, y: y + dotBox.y, w: dotBox.w, h: dotBox.h, r: dotBox.h / 2, fill: color(getComputedStyle(dot).backgroundColor) });
     }
     if (view.meta.hidden) return;
     for (const chip of view.meta.children) {

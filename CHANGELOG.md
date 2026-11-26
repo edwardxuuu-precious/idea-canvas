@@ -6,6 +6,36 @@
 
 ---
 
+## [2.2.2] (Build 20) - 2026-11-27
+
+补齐跨功能组合盲区审计与多轮无头 Chromium 对抗复测发现的全部 13 处边界缺陷（含跨画布历史一致性、待办富文本切换、新建空白卡片焦点状态、正文滚轮滚动与全视口响应式顶栏/抽屉防挤压），并通过 19 档视口全层级扫描确认零残留 Bug。
+
+### 修复清单（更新了什么 / 为什么更新 / 具体做了什么）
+
+1. **跨画布撤销隔离与子画布链接防悬空（[src/scripts/03-workspace-sync.js](src/scripts/03-workspace-sync.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)、[tools/canvas-logic.test.mjs](tools/canvas-logic.test.mjs)）**
+   - **为什么**：在画布 A 执行撤销/重做未失效画布 B 挂起的整库历史快照，切回 B 撤销会静默回滚 A 的还原结果；删除子画布后历史栈中仍残留指向已删画布的 `subBoardId` 与旧 `parentId`，单表撤销会将其复活为无法进入且无法重新提取的死链接，且会覆盖当前已重挂的层级父指针；右键菜单未校验 `subBoardId` 对应画布是否仍存在。
+   - **做了什么**：`undoRedo` 同步调用 `invalidateCrossBoardUndo`、单表撤销/重做保留实时 `liveParentId` 并执行 `sanitizeBoardLinks` 清理无效或重复 `subBoardId`；`deleteBoard` 调用 `scrubDeletedBoardFromHistory` 清洗历史快照中对已删画布的引用；右键菜单按目标画布实时存在性决定展示「进入子画布」或「提取为子画布」，并新增历史清洗与链接去重单元测试。
+2. **原位待办切换全面重构（[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)）**
+   - **为什么**：原 `toggleChecklistCommand` 直接依赖 Chromium `execCommand('insertUnorderedList')`，存在空白正文首次点击不生效、多行或混合选区（普通文本 + 已有待办/有序列表）将列表拆散或产生删除线残影、回车生成的 `<div><ul>` 包裹层被二次套进 `<li>`、两个列表夹普通文本误走纯列表分支，以及部分选中嵌套包裹层时前后未选中片段顺序反转等边界缺陷。
+   - **做了什么**：重写 `toggleChecklistCommand` 及辅助函数（`isRangeAtStartOf`、`isRangeAtEndOf`、`nodeIntersectsRange`、`selectedListItems`、`hasNonListContentInRange`、`ensureUlParent`）：空白容器直接构建标准 `<ul><li data-done="false">`；有序列表全选或部分选中均转为无序待办；混合选区与跨列表普通文本通过递归 `processNode` 拍平包裹层、提前 flush `beforeParts` 并以 `tailAnchor` 顺次追加后缀节点，保证所有嵌套与边界拖拽场景下文档顺序与 `data-done` 状态完全保真。
+3. **空白新建卡片幻影选中与 `Esc` 焦点修复（[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)）**
+   - **为什么**：新建空白草稿卡时点击卡片空白区域会通过 `focusin` 将尚未落盘的草稿 ID 写入 `selection.ids`，按 `Esc` 取消后残留幻影选中工具栏，再按 `Alt+ArrowRight` 触发 `TypeError`；正文框内按 `Esc` 取消新建空白卡后未将焦点交回画布。
+   - **做了什么**：`focusin` 仅选中已存在于 `board().nodes` 的卡片，`render` 过滤不在当前画布或已隐藏的选中 ID；全局与 `.inline-body` 的 `Esc` 统一走 `cancelInline`，`finishInline` 在取消新建卡路径上按 `keepFocus` 将焦点交回画布。
+4. **长正文原位编辑滚轮隔离（[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)、[src/styles/06-editing-and-menus.css](src/styles/06-editing-and-menus.css)）**
+   - **为什么**：长文本卡片进入原位编辑后，双指/滚轮在 `.inline-body` 内滚动会被画布视口 `wheel` 监听拦截，导致无法滚动正文反而拖走整张画布。
+   - **做了什么**：非 `Ctrl`/`Meta` 缩放滚轮事件命中可滚动 `.inline-body`（`scrollHeight > clientHeight + 1`）时放行给浏览器原生滚动，并补充 `overscroll-behavior: contain` 防止滚到底后穿透到画布。
+5. **全视口（360px–1440px）顶栏防挤压与窄屏抽屉防重叠（[src/styles/02-chrome.css](src/styles/02-chrome.css)、[src/styles/05-panels.css](src/styles/05-panels.css)、[src/styles/06-editing-and-menus.css](src/styles/06-editing-and-menus.css)）**
+   - **为什么**：窄窗或 1–2 级子画布下，右侧按钮栏溢出视口、右侧抽屉与右下角缩放条 `.nav` 重叠，且在 `541px` 与 `1181px` 等断点处 `#board-title` 被挤压到不足 1 个汉字宽度。
+   - **做了什么**：为 `.bar-left` / `.bar-right` / `.search-trigger` / `.board-trigger` / `.breadcrumbs` 建立分层收缩优先级（`.breadcrumbs` `flex: 0 3 auto` + `.crumb-btn { min-width: 0 }`），上调品牌文字隐藏至 `1240px`、紧凑返回箭头至 `1040px`、`#file-toggle` 图标化至 `680px` 并收紧 `540px` 间距；`<= 800px` 抬高 `.nav`/`.stage-meta` 并限制抽屉最大高度，全 19 档视口（含 0/1/2 级子画布与保存状态文案展开态）下 `#board-title` 均保持 57px 以上可读宽度且零溢出、零重叠。
+
+- **验证与回归测试**
+  - `bun test` 扩至 **27 条用例、21,549 次断言**，全部通过；无头 Chromium 对 19 档视口、3 级子画布、嵌套待办切换、空白新建卡取消与滚轮滚动完成全量对抗复测，确认 0 报错、零残留 Bug。
+- **版本标记与备份**
+  - Git 提交及标签：`v2.2.2`
+  - 备份归档目录：`dist/releases/v2.2.2-b20/`
+
+---
+
 ## [2.2.1] (Build 19) - 2026-11-26
 
 集中根治 `v2.2.0` 新增功能引入的缩放可读性、分支聚焦与样式回归，并通过多轮对抗式全仓审计同步清零布局、分区、剪贴板、导出、桌面同步与 MCP 侧的全部隐藏缺陷（48 项修复，三轮复核零残留）。

@@ -746,3 +746,57 @@ test('CanvasData.parse breaks multi-board parentId cycles and bundled HTML keeps
   const markers = bundled.match(/<!-- LOCAL_CANVAS_SYNC -->/g) || [];
   expect(markers.length).toBe(1);
 });
+
+test('history helpers scrub deleted board references and sanitize dangling/duplicate subBoard links on undo', () => {
+  const syncSrc = fs.readFileSync(fileURLToPath(new URL('../src/scripts/03-workspace-sync.js', import.meta.url)), 'utf8');
+  const start = syncSrc.indexOf('function invalidateCrossBoardUndo(');
+  const end = syncSrc.indexOf('function undoRedo(');
+  const snippet = syncSrc.slice(start, end);
+
+  const history = new Map();
+  const workspace = {
+    activeId: 'c',
+    boards: [
+      { id: 'a', name: 'A', nodes: [{ id: 'n1', subBoardId: 'b' }], edges: [], settings: { parentId: null } },
+      { id: 'c', name: 'C', nodes: [], edges: [], settings: { parentId: 'a' } },
+      { id: 'd', name: 'D', nodes: [{ id: 'n2', subBoardId: 's1' }], edges: [], settings: { parentId: null } },
+      { id: 's1', name: 'S1', nodes: [], edges: [], settings: { parentId: 'd' } },
+    ],
+    themes: [],
+  };
+  history.set('a', {
+    past: [
+      { name: 'A', nodes: [{ id: 'n1', subBoardId: 'b' }, { id: 'n3', subBoardId: 's1' }], edges: [], settings: { parentId: null } },
+      { workspaceBoards: [], workspaceActiveId: 'a', themes: [] },
+    ],
+    future: [],
+  });
+  history.set('c', {
+    past: [{ name: 'C', nodes: [], edges: [], settings: { parentId: 'b' } }],
+    future: [{ name: 'C', nodes: [], edges: [], settings: { parentId: 'b' } }],
+  });
+
+  const { invalidateCrossBoardUndo, scrubDeletedBoardFromHistory, sanitizeBoardLinks } = new Function(
+    'history', 'workspace', 'selectedBoardHistory', 'snapshot',
+    `${snippet}\nreturn { invalidateCrossBoardUndo, scrubDeletedBoardFromHistory, sanitizeBoardLinks };`,
+  )(history, workspace, () => history.get(workspace.activeId), () => ({}));
+
+  // 1. Deleting board 'b' with fallbackParent 'a' rewires history snapshots across remaining boards
+  scrubDeletedBoardFromHistory('b', 'a');
+  expect(history.get('c').past[0].settings.parentId).toBe('a');
+  expect(history.get('c').future[0].settings.parentId).toBe('a');
+  expect(history.get('a').past[0].nodes[0].subBoardId).toBeUndefined();
+
+  // 2. invalidateCrossBoardUndo clears cross-board snapshots on other boards (preserving active board)
+  invalidateCrossBoardUndo('c', true);
+  expect(history.get('a').past.some((e) => e.workspaceBoards)).toBe(false);
+
+  // 3. sanitizeBoardLinks removes dangling parentId, cycles, and subBoardId already claimed on another board
+  const boardA = workspace.boards[0];
+  boardA.settings.parentId = 'deleted-parent';
+  boardA.nodes.push({ id: 'dup', subBoardId: 's1' }, { id: 'self', subBoardId: 'a' });
+  sanitizeBoardLinks(boardA);
+  expect(boardA.settings.parentId).toBeNull();
+  expect(boardA.nodes.find((n) => n.id === 'dup').subBoardId).toBeUndefined();
+  expect(boardA.nodes.find((n) => n.id === 'self').subBoardId).toBeUndefined();
+});

@@ -1244,7 +1244,7 @@ function render() {
   controls.redo.disabled = !future.length;
   hierarchy = CanvasLayout.tree(current.nodes, current.edges);
   visibility = CanvasViews.visibility(hierarchy);
-  if (selection.kind === 'cards') selection.ids = new Set([...selection.ids].filter(id => !visibility.hidden.has(id)));
+  if (selection.kind === 'cards') selection.ids = new Set([...selection.ids].filter(id => nodeBy(id) && !visibility.hidden.has(id)));
   else {
     const edge = chosenEdge();
     if (edge && (visibility.hidden.has(edge.from) || visibility.hidden.has(edge.to))) selection = noSelection();

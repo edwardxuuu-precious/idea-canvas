@@ -377,22 +377,281 @@ function finishNote() {
   noteDialog.close();
 }
 
+function isRangeAtStartOf(el, node, offset) {
+  if (offset !== 0) return false;
+  let cur = node;
+  while (cur && cur !== el) {
+    if (cur.previousSibling) return false;
+    cur = cur.parentNode;
+  }
+  return cur === el;
+}
+
+function isRangeAtEndOf(el, node, offset) {
+  const len = node.nodeType === Node.TEXT_NODE ? node.length : node.childNodes.length;
+  if (offset !== len) return false;
+  let cur = node;
+  while (cur && cur !== el) {
+    if (cur.nextSibling) return false;
+    cur = cur.parentNode;
+  }
+  return cur === el;
+}
+
+function nodeIntersectsRange(node, range) {
+  if (!range.collapsed && (isRangeAtStartOf(node, range.endContainer, range.endOffset) || isRangeAtEndOf(node, range.startContainer, range.startOffset))) {
+    return false;
+  }
+  try { return range.intersectsNode(node); } catch { return false; }
+}
+
+function selectedListItems(container, range) {
+  const items = [...container.querySelectorAll('li')].filter(li => nodeIntersectsRange(li, range));
+  if (!items.length) {
+    let node = range.startContainer;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    const li = node?.closest?.('li');
+    if (li && container.contains(li)) items.push(li);
+  }
+  return items;
+}
+
+function hasNonListContentInRange(container, range, existingItems) {
+  const liSet = new Set(existingItems);
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (!node.textContent.trim() || !nodeIntersectsRange(node, range)) continue;
+      const li = node.parentElement?.closest('li');
+      if (!li || !liSet.has(li)) return true;
+    } else if (node.tagName === 'IMG') {
+      if (!nodeIntersectsRange(node, range)) continue;
+      const li = node.closest('li');
+      if (!li || !liSet.has(li)) return true;
+    }
+  }
+  return false;
+}
+
+function ensureUlParent(items) {
+  const ols = new Set(items.map(li => li.parentElement).filter(parent => parent?.tagName === 'OL'));
+  const selectedSet = new Set(items);
+  for (const ol of ols) {
+    const kids = [...ol.children];
+    if (kids.every(kid => selectedSet.has(kid))) {
+      const ul = document.createElement('ul');
+      while (ol.firstChild) ul.append(ol.firstChild);
+      ol.replaceWith(ul);
+    } else {
+      const frag = document.createDocumentFragment();
+      let run = null;
+      let runIsUl = false;
+      for (const kid of kids) {
+        const wantUl = selectedSet.has(kid);
+        if (!run || runIsUl !== wantUl) {
+          run = document.createElement(wantUl ? 'ul' : 'ol');
+          runIsUl = wantUl;
+          frag.append(run);
+        }
+        run.append(kid);
+      }
+      ol.replaceWith(frag);
+    }
+  }
+}
+
 function toggleChecklistCommand(container, editCallback) {
   const sel = window.getSelection();
   if (!sel?.rangeCount) return;
-  let block = sel.getRangeAt(0).startContainer;
-  if (block.nodeType === Node.TEXT_NODE) block = block.parentElement;
-  const existingLi = block?.closest?.('li');
-  if (existingLi && container.contains(existingLi)) {
-    if (existingLi.hasAttribute('data-done')) existingLi.removeAttribute('data-done');
-    else existingLi.setAttribute('data-done', 'false');
+  if (!container.textContent.trim() && !container.querySelector('img, li')) {
+    const ul = document.createElement('ul');
+    const li = document.createElement('li');
+    li.setAttribute('data-done', 'false');
+    li.append(document.createElement('br'));
+    ul.append(li);
+    container.replaceChildren(ul);
+    const nextRange = document.createRange();
+    nextRange.setStart(li, 0);
+    nextRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(nextRange);
     editCallback();
     return;
   }
+  const range = sel.getRangeAt(0);
+  const closestLi = node => {
+    const el = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    const li = el?.closest?.('li');
+    return li && container.contains(li) ? li : null;
+  };
+  const startLi = closestLi(range.startContainer);
+  const endLi = closestLi(range.endContainer);
+  const existingItems = selectedListItems(container, range);
+  if (existingItems.length && startLi && endLi && !hasNonListContentInRange(container, range, existingItems)) {
+    const allChecklist = existingItems.every(li => li.hasAttribute('data-done'));
+    if (allChecklist) {
+      for (const li of existingItems) li.removeAttribute('data-done');
+    } else {
+      ensureUlParent(existingItems);
+      for (const li of existingItems) {
+        if (!li.hasAttribute('data-done')) li.setAttribute('data-done', 'false');
+      }
+      const nextRange = document.createRange();
+      nextRange.setStart(existingItems[0], 0);
+      nextRange.setEnd(existingItems.at(-1), existingItems.at(-1).childNodes.length);
+      if (range.collapsed) nextRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(nextRange);
+    }
+    editCallback();
+    return;
+  }
+  if (existingItems.length) {
+    const selectedSet = new Set(existingItems);
+    const topNodes = [...container.childNodes].filter(child => nodeIntersectsRange(child, range));
+    const ul = document.createElement('ul');
+    const converted = [];
+    const anchor = topNodes[0];
+    let tailAnchor = ul;
+    let inlineBuf = [];
+    const hasMeaningfulParts = parts => parts.some(n => n.nodeType !== Node.TEXT_NODE || n.textContent.trim().length > 0);
+    const flushInline = () => {
+      if (!inlineBuf.length) return;
+      const nonWs = inlineBuf.some(n => (n.nodeType === Node.TEXT_NODE ? n.textContent.trim() : n.nodeName !== 'BR'));
+      if (nonWs) {
+        const li = document.createElement('li');
+        li.setAttribute('data-done', 'false');
+        li.append(...inlineBuf);
+        ul.append(li);
+        converted.push(li);
+      } else {
+        for (const n of inlineBuf) n.remove();
+      }
+      inlineBuf = [];
+    };
+    const processNode = child => {
+      if (child.nodeType === Node.ELEMENT_NODE && (child.tagName === 'UL' || child.tagName === 'OL')) {
+        flushInline();
+        const kids = [...child.children];
+        if (!kids.some(kid => selectedSet.has(kid))) {
+          if (converted.length) {
+            tailAnchor.after(child);
+            tailAnchor = child;
+          } else {
+            ul.before(child);
+          }
+          return;
+        }
+        const prefix = [];
+        const suffix = [];
+        let seenPicked = false;
+        for (const kid of kids) {
+          if (selectedSet.has(kid)) {
+            seenPicked = true;
+            if (!kid.hasAttribute('data-done')) kid.setAttribute('data-done', 'false');
+            ul.append(kid);
+            converted.push(kid);
+          } else if (!seenPicked) prefix.push(kid);
+          else suffix.push(kid);
+        }
+        if (prefix.length) {
+          const beforeList = document.createElement(child.tagName.toLowerCase());
+          beforeList.append(...prefix);
+          ul.before(beforeList);
+        }
+        if (suffix.length) {
+          const afterList = document.createElement(child.tagName.toLowerCase());
+          afterList.append(...suffix);
+          tailAnchor.after(afterList);
+          tailAnchor = afterList;
+        }
+        child.remove();
+      } else if (child.nodeType === Node.ELEMENT_NODE && child.querySelector('ul, ol')) {
+        flushInline();
+        const subNodes = [...child.childNodes];
+        const beforeParts = [];
+        const afterParts = [];
+        const flushBefore = () => {
+          if (!beforeParts.length) return;
+          if (hasMeaningfulParts(beforeParts)) {
+            const pre = document.createElement(child.tagName.toLowerCase());
+            pre.append(...beforeParts);
+            ul.before(pre);
+          }
+          beforeParts.length = 0;
+        };
+        let seenSelected = false;
+        for (const sub of subNodes) {
+          if (nodeIntersectsRange(sub, range)) {
+            if (!seenSelected) {
+              flushBefore();
+              seenSelected = true;
+            }
+            processNode(sub);
+          } else if (!seenSelected) {
+            beforeParts.push(sub);
+          } else {
+            afterParts.push(sub);
+          }
+        }
+        if (!seenSelected) {
+          if (converted.length) {
+            tailAnchor.after(child);
+            tailAnchor = child;
+          } else {
+            ul.before(child);
+          }
+          return;
+        }
+        flushInline();
+        if (hasMeaningfulParts(afterParts)) {
+          const post = document.createElement(child.tagName.toLowerCase());
+          post.append(...afterParts);
+          tailAnchor.after(post);
+          tailAnchor = post;
+        }
+        child.remove();
+      } else if (child.nodeType === Node.ELEMENT_NODE && /^(DIV|P|H[1-6]|BLOCKQUOTE)$/.test(child.tagName)) {
+        flushInline();
+        const li = document.createElement('li');
+        li.setAttribute('data-done', 'false');
+        while (child.firstChild) li.append(child.firstChild);
+        if (!li.childNodes.length) li.append(document.createElement('br'));
+        ul.append(li);
+        converted.push(li);
+        child.remove();
+      } else if (child.nodeType === Node.ELEMENT_NODE && child.tagName === 'BR') {
+        flushInline();
+        child.remove();
+      } else {
+        inlineBuf.push(child);
+      }
+    };
+    if (anchor) {
+      anchor.before(ul);
+      for (const child of topNodes) processNode(child);
+      flushInline();
+      if (!ul.childNodes.length) ul.remove();
+      else if (converted.length) {
+        const nextRange = document.createRange();
+        nextRange.setStart(converted[0], 0);
+        nextRange.setEnd(converted.at(-1), converted.at(-1).childNodes.length);
+        sel.removeAllRanges();
+        sel.addRange(nextRange);
+      }
+    }
+    editCallback();
+    return;
+  }
+  const prevLis = new Set(container.querySelectorAll('li'));
   document.execCommand('insertUnorderedList', false, null);
-  const current = window.getSelection()?.anchorNode;
-  const li = (current?.nodeType === Node.TEXT_NODE ? current.parentElement : current)?.closest?.('li');
-  if (li && container.contains(li)) li.setAttribute('data-done', 'false');
+  const nextSel = window.getSelection();
+  let nextItems = nextSel?.rangeCount ? selectedListItems(container, nextSel.getRangeAt(0)) : [];
+  if (!nextItems.length) nextItems = [...container.querySelectorAll('li')].filter(li => !prevLis.has(li));
+  for (const li of nextItems) {
+    if (!li.hasAttribute('data-done')) li.setAttribute('data-done', 'false');
+  }
   editCallback();
 }
 
@@ -642,6 +901,7 @@ function finishInline(options = {}) {
     cardSizes.unobserve(active.element);
     active.element.remove();
     cardIndex.delete(active.node.id);
+    if (!options.keepFocus) focusCanvas();
     render();
     return;
   }
@@ -871,7 +1131,7 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
       finishInline();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      finishInline();
+      cancelInline();
     } else if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault();
       if (inlineEdit?.isNew && !titleInput.value.trim() && !bodyEditor.textContent.trim() && !bodyEditor.querySelector('img')) return;
@@ -1089,6 +1349,7 @@ function deleteBoard() {
     }
   }
   history.delete(deletedId);
+  scrubDeletedBoardFromHistory(deletedId, fallbackParent);
   invalidateCrossBoardUndo();
   switchBoard(workspace.boards[Math.min(index, workspace.boards.length - 1)].id);
   toast('已删除画布');

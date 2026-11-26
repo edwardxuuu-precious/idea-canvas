@@ -642,6 +642,44 @@ function checkpoint(withView = false, withThemes = false, withWorkspace = false)
   future.length = 0;
 }
 
+function scrubDeletedBoardFromHistory(deletedId, fallbackParent) {
+  for (const [boardId, stack] of history) {
+    const nextParent = fallbackParent === boardId ? null : fallbackParent;
+    for (const list of [stack.past, stack.future]) {
+      for (const entry of list) {
+        if (entry.settings?.parentId === deletedId) entry.settings.parentId = nextParent;
+        for (const node of entry.nodes || []) {
+          if (node.subBoardId === deletedId) delete node.subBoardId;
+        }
+      }
+    }
+  }
+}
+
+function sanitizeBoardLinks(target) {
+  const boardById = new Map(workspace.boards.map(item => [item.id, item]));
+  if (target.settings?.parentId) {
+    const trail = new Set([target.id]);
+    let cursor = target.settings.parentId;
+    while (cursor) {
+      if (trail.has(cursor) || !boardById.has(cursor)) {
+        target.settings.parentId = null;
+        break;
+      }
+      trail.add(cursor);
+      cursor = boardById.get(cursor).settings?.parentId;
+    }
+  }
+  const claimedElsewhere = new Set(
+    workspace.boards.filter(item => item.id !== target.id).flatMap(item => item.nodes.map(node => node.subBoardId).filter(Boolean))
+  );
+  for (const node of target.nodes) {
+    if (node.subBoardId && (!boardById.has(node.subBoardId) || node.subBoardId === target.id || claimedElsewhere.has(node.subBoardId))) {
+      delete node.subBoardId;
+    }
+  }
+}
+
 function undoRedo(which) {
   if (inlineEdit) finishInline();
   if (gesture) cancelGesture();
@@ -651,10 +689,12 @@ function undoRedo(which) {
   if (!from.length) return;
   const entry = from.pop();
   if (entry.workspaceBoards) {
+    const activeId = workspace.activeId;
     to.push(snapshot(false, false, true));
     workspace.boards = entry.workspaceBoards;
     workspace.activeId = entry.workspaceActiveId;
     if (entry.themes) workspace.themes = entry.themes;
+    invalidateCrossBoardUndo(activeId, true);
     CanvasViews.reset();
     selection = noSelection();
     linkSource = null;
@@ -665,10 +705,14 @@ function undoRedo(which) {
     return;
   }
   const before = capturePositions();
+  const liveParentId = board().settings?.parentId ?? null;
   const { themes, ...previous } = entry;
   to.push(snapshot(!!previous.view, !!themes));
+  invalidateCrossBoardUndo(workspace.activeId, !!themes);
   if (themes) workspace.themes = themes;
   Object.assign(board(), previous);
+  if (board().settings) board().settings.parentId = liveParentId;
+  sanitizeBoardLinks(board());
   selection = noSelection();
   linkSource = null;
   render();

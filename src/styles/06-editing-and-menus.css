@@ -72,7 +72,7 @@
 .card[data-tone="topic"]:not([data-depth="3"]) .inline-title:focus { border-bottom-color: rgba(255, 255, 255, 0.28); }
 .inline-title::placeholder { color: var(--card-sub); opacity: .55; font-weight: 500; }
 .inline-body {
-  min-height: 24px; max-height: 260px; overflow-y: auto; outline: none; position: relative;
+  min-height: 24px; max-height: 260px; overflow-y: auto; overscroll-behavior: contain; outline: none; position: relative;
   font-size: 13.5px; line-height: 1.66; color: var(--card-sub); cursor: text;
   user-select: text; -webkit-user-select: text; overflow-wrap: anywhere;
 }
@@ -99,9 +99,9 @@
   display: flex; align-items: center; gap: 10px;
 }
 
-.breadcrumbs { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 240px; overflow: hidden; font-size: 12px; color: var(--muted); }
+.breadcrumbs { flex: 0 3 auto; display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 240px; overflow: hidden; font-size: 12px; color: var(--muted); }
 .crumb-btn {
-  display: inline-flex; align-items: center; gap: 3px; height: 28px; padding: 0 6px;
+  display: inline-flex; align-items: center; gap: 3px; min-width: 0; height: 28px; padding: 0 6px;
   border-radius: 7px; color: var(--ink-soft); font-weight: 560; max-width: 112px;
 }
 .crumb-btn:hover { background: var(--glass-hover); color: var(--ink); }

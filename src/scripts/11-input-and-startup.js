@@ -743,8 +743,9 @@ function openContextMenu(event) {
     if (!noteIds().includes(cardId)) setSelected([cardId]);
     const selectedNodes = noteIds().map(nodeBy).filter(Boolean);
     const single = selectedNodes.length === 1 ? selectedNodes[0] : null;
+    const hasSubBoard = !!(single?.subBoardId && workspace.boards.some(b => b.id === single.subBoardId));
     if (single) {
-      if (single.subBoardId && workspace.boards.some(b => b.id === single.subBoardId)) {
+      if (hasSubBoard) {
         addContextItem('进入子画布', () => switchBoard(single.subBoardId));
       }
       addContextItem('原位编辑', () => openInline(single), { shortcut: '双击' });
@@ -778,7 +779,7 @@ function openContextMenu(event) {
     toneRow.append(toneLabel, dots);
     contextMenu.append(toneRow);
     addContextDivider();
-    if (!single?.subBoardId) addContextItem('提取为子画布', extractToSubBoard);
+    if (!hasSubBoard) addContextItem('提取为子画布', extractToSubBoard);
     addContextItem('复制为 Markdown（给 AI）', copySelectionAsMarkdown, { shortcut: modKey + '⇧C' });
     addContextItem('复制卡片', () => copySelectionToClipboard(false), { shortcut: modKey + 'C' });
     addContextItem('建立分区', () => CanvasViews.addFrame());
@@ -909,7 +910,7 @@ $('#palette-backdrop')?.addEventListener('click', closePopover);
 viewport.addEventListener('contextmenu', openContextMenu);
 viewport.addEventListener('focusin', event => {
   const id = event.target.dataset.card;
-  if (id && !noteIds().includes(id)) setSelected([id]);
+  if (id && nodeBy(id) && !noteIds().includes(id)) setSelected([id]);
 });
 viewport.addEventListener('click', event => {
   if (inlineEdit && inlineEdit.element.contains(event.target)) return;
@@ -973,6 +974,8 @@ viewport.addEventListener('dblclick', event => {
   else openInline(blankCard(worldPoint(point(event))), { isNew: true });
 });
 viewport.addEventListener('wheel', event => {
+  const scroller = !event.ctrlKey && !event.metaKey && event.target.closest?.('.inline-body');
+  if (scroller && scroller.scrollHeight > scroller.clientHeight + 1) return;
   event.preventDefault();
   if (gesture) return;
   closeSelectionSubPopovers();
@@ -1057,7 +1060,13 @@ document.addEventListener('keydown', event => {
     focusCanvas();
     return;
   }
-  if (inlineEdit) return;
+  if (inlineEdit) {
+    if (key === 'escape') {
+      event.preventDefault();
+      cancelInline();
+    }
+    return;
+  }
   if (openSourceCardId && key === 'escape') {
     event.preventDefault();
     const trigger = cardIndex.get(openSourceCardId)?.element.querySelector('[data-card-sources]');

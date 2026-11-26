@@ -133,15 +133,46 @@ const CanvasLayout = (() => {
     for (const [id, { x, y }] of source) target.set(id, { x: x + dx, y: y + dy });
   }
 
+  function leafGrid(childIds, hierarchy) {
+    const count = childIds?.length || 0;
+    if (count < 5 || childIds.some(id => (hierarchy.children.get(id)?.length || 0) > 0)) return null;
+    const columns = count >= 10 ? 3 : 2;
+    return { columns, rows: Math.ceil(count / columns) };
+  }
+
+  function gridMetrics(childItems, grid, byId, spec) {
+    const rowHeights = Array(grid.rows).fill(0);
+    const colWidths = Array(grid.columns).fill(0);
+    for (let index = 0; index < childItems.length; index++) {
+      const { w, h } = byId.get(childItems[index].id);
+      const col = Math.floor(index / grid.rows);
+      const row = index % grid.rows;
+      rowHeights[row] = Math.max(rowHeights[row], h);
+      colWidths[col] = Math.max(colWidths[col], w);
+    }
+    const colGap = Math.max(36, Math.round(spec.levelGap * 0.45));
+    const rowOffsets = trackStarts(rowHeights, 0, spec.nodeGap);
+    const colOffsets = trackStarts(colWidths, 0, colGap);
+    return { rowOffsets, colOffsets, height: rowOffsets.at(-1) + rowHeights.at(-1) };
+  }
+
   function layers(roots, hierarchy, byId, spec, vertical = false) {
     const depthSize = node => vertical ? node.h : node.w;
     const laneSize = node => vertical ? node.w : node.h;
-    const items = roots.map(id => ({ id, depth: 0, children: [] }));
+    const rootGrid = !vertical ? leafGrid(roots, hierarchy) : null;
+    const items = roots.map((id, index) => ({
+      id, depth: 0, children: [], gridCol: rootGrid ? Math.floor(index / rootGrid.rows) : 0,
+    }));
     const widths = [];
     for (const item of items) {
-      widths[item.depth] = Math.max(widths[item.depth] || 0, depthSize(byId.get(item.id)));
-      for (const id of hierarchy.children.get(item.id)) {
-        const child = { id, depth: item.depth + 1, children: [] };
+      if (!item.gridCol) widths[item.depth] = Math.max(widths[item.depth] || 0, depthSize(byId.get(item.id)));
+      const childIds = hierarchy.children.get(item.id) || [];
+      item.grid = !vertical ? leafGrid(childIds, hierarchy) : null;
+      for (let index = 0; index < childIds.length; index++) {
+        const child = {
+          id: childIds[index], depth: item.depth + 1, children: [],
+          gridCol: item.grid ? Math.floor(index / item.grid.rows) : 0,
+        };
         item.children.push(child);
         items.push(child);
       }
@@ -151,22 +182,44 @@ const CanvasLayout = (() => {
 
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i];
-      item.childSpan = item.children.reduce((height, child, index) => height + child.span + (index ? spec.nodeGap : 0), 0);
+      if (item.grid) {
+        item.gridLayout = gridMetrics(item.children, item.grid, byId, spec);
+        item.childSpan = item.gridLayout.height;
+      } else {
+        item.childSpan = item.children.reduce((height, child, index) => height + child.span + (index ? spec.nodeGap : 0), 0);
+      }
       item.span = Math.max(item.childSpan, laneSize(byId.get(item.id)));
     }
 
-    let span = 0;
-    for (const item of items.slice(0, roots.length)) {
-      item.start = span;
-      span += item.span + spec.nodeGap;
+    const rootItems = items.slice(0, roots.length);
+    if (rootGrid) {
+      const rootLayout = gridMetrics(rootItems, rootGrid, byId, spec);
+      rootItems.forEach((item, index) => {
+        item.start = rootLayout.rowOffsets[index % rootGrid.rows];
+        item.xOffset = rootLayout.colOffsets[Math.floor(index / rootGrid.rows)];
+      });
+    } else {
+      let span = 0;
+      for (const item of rootItems) {
+        item.start = span;
+        span += item.span + spec.nodeGap;
+      }
     }
     const isTopAligned = item => !vertical && item.children.length > 0 &&
       (item.children.length >= 3 || item.childSpan > laneSize(byId.get(item.id)) * 1.8);
     for (const item of items) {
-      let childStart = item.start + (isTopAligned(item) ? 0 : (item.span - item.childSpan) / 2);
-      for (const child of item.children) {
-        child.start = childStart;
-        childStart += child.span + spec.nodeGap;
+      const childStart = item.start + (isTopAligned(item) ? 0 : (item.span - item.childSpan) / 2);
+      if (item.grid) {
+        item.children.forEach((child, index) => {
+          child.start = childStart + item.gridLayout.rowOffsets[index % item.grid.rows];
+          child.xOffset = item.gridLayout.colOffsets[Math.floor(index / item.grid.rows)];
+        });
+      } else {
+        let cursor = childStart;
+        for (const child of item.children) {
+          child.start = cursor;
+          cursor += child.span + spec.nodeGap;
+        }
       }
     }
     const positions = new Map();
@@ -181,7 +234,7 @@ const CanvasLayout = (() => {
       } else {
         item.across = item.start + (item.span - size) / 2;
       }
-      const level = levels[item.depth];
+      const level = levels[item.depth] + (item.xOffset || 0);
       positions.set(item.id, vertical ? { x: item.across, y: level } : { x: level, y: item.across });
     }
     return positions;

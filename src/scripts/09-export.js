@@ -378,15 +378,13 @@ const CanvasExport = (() => {
       shapes.push(...guideLabels);
     }
 
-    const downward = layout.options.mode === 'down';
     const labels = [];
     for (const edge of current.edges) {
       const from = rects.get(edge.from);
       const to = rects.get(edge.to);
       if (!from || !to) continue;
       const style = edgeStyle(edge);
-      const side = downward && hierarchy.parent.get(edge.to) === edge.from && to.y >= from.y + from.h ? 'down' : undefined;
-      const curve = linkCurve(from, to, false, style.shape, side);
+      const curve = branchEdgeCurve(edge, from, to, rects, hierarchy, layout.options, style.shape);
       shapes.push({
         type: 'path', d: curve.path, color: color(style.color, '#64748b'), width: style.width,
         dash: lineDashes[style.dash] || null, round: style.dash === 'dotted',

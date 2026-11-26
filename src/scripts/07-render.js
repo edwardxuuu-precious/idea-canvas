@@ -122,6 +122,90 @@ function linkCurve(from, to, forceRight = false, shape = "curve", side = connect
   };
 }
 
+function roundedOrthogonalPath(points, maxRadius = 10) {
+  const clean = [];
+  for (const p of points) {
+    const prev = clean.at(-1);
+    if (!prev || Math.hypot(p.x - prev.x, p.y - prev.y) >= 0.5) clean.push(p);
+  }
+  for (let i = clean.length - 2; i >= 1; i--) {
+    const a = clean[i - 1], b = clean[i], c = clean[i + 1];
+    const colX = Math.abs(a.x - b.x) < 0.5 && Math.abs(b.x - c.x) < 0.5 && (b.y - a.y) * (c.y - b.y) >= 0;
+    const colY = Math.abs(a.y - b.y) < 0.5 && Math.abs(b.y - c.y) < 0.5 && (b.x - a.x) * (c.x - b.x) >= 0;
+    if (colX || colY) clean.splice(i, 1);
+  }
+  if (clean.length < 2) return '';
+  const parts = [`M ${clean[0].x} ${clean[0].y}`];
+  for (let i = 1; i < clean.length - 1; i++) {
+    const prev = clean[i - 1], curr = clean[i], next = clean[i + 1];
+    const d1 = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+    const d2 = Math.hypot(next.x - curr.x, next.y - curr.y);
+    const r = Math.min(maxRadius, i === 1 ? d1 : d1 / 2, i === clean.length - 2 ? d2 : d2 / 2);
+    if (r < 0.5) {
+      parts.push(`L ${curr.x} ${curr.y}`);
+      continue;
+    }
+    const inX = curr.x + ((prev.x - curr.x) / d1) * r;
+    const inY = curr.y + ((prev.y - curr.y) / d1) * r;
+    const outX = curr.x + ((next.x - curr.x) / d2) * r;
+    const outY = curr.y + ((next.y - curr.y) / d2) * r;
+    parts.push(`L ${inX} ${inY} Q ${curr.x} ${curr.y} ${outX} ${outY}`);
+  }
+  const last = clean.at(-1);
+  parts.push(`L ${last.x} ${last.y}`);
+  return parts.join(' ');
+}
+
+function routedBranchCurve(from, to, siblings, nodeGap = 24) {
+  const rightSide = to.x >= from.x + from.w;
+  const leftSide = !rightSide && to.x + to.w <= from.x;
+  if (!rightSide && !leftSide) return null;
+  const between = siblings.filter(s => rightSide
+    ? s.x >= from.x + from.w && s.x + s.w <= to.x
+    : s.x + s.w <= from.x && s.x >= to.x + to.w);
+  if (!between.length) return null;
+  const laneTop = to.y - Math.min(nodeGap, 24);
+  if (between.some(s => s.y < to.y && s.y + s.h > laneTop)) return null;
+  const sx = rightSide ? 1 : -1;
+  const parentEdge = rightSide ? from.x + from.w : from.x;
+  const nearestEdge = rightSide ? Math.min(...between.map(s => s.x)) : Math.max(...between.map(s => s.x + s.w));
+  const prevEdge = rightSide ? Math.max(...between.map(s => s.x + s.w)) : Math.min(...between.map(s => s.x));
+  const childEdge = rightSide ? to.x : to.x + to.w;
+  const spineX = (parentEdge + nearestEdge) / 2;
+  const gutterX = (prevEdge + childEdge) / 2;
+  const laneY = to.y - Math.min(nodeGap, 24) / 2;
+  const a = { x: parentEdge + sx * 2, y: from.y + from.h / 2 };
+  const b = { x: childEdge - sx * (to.w ? 3 : 0), y: to.y + to.h / 2 };
+  const path = roundedOrthogonalPath([
+    a,
+    { x: spineX, y: a.y },
+    { x: spineX, y: laneY },
+    { x: gutterX, y: laneY },
+    { x: gutterX, y: b.y },
+    b,
+  ], 10);
+  return {
+    path,
+    label: { x: (spineX + gutterX) / 2, y: laneY },
+    start: { x: a.x, y: a.y, dx: -sx, dy: 0 },
+    end: { x: b.x, y: b.y, dx: sx, dy: 0 },
+  };
+}
+
+function branchEdgeCurve(edge, from, to, rects, tree, layoutOptions, shape) {
+  const mode = layoutOptions.mode;
+  const isChild = tree.parent.get(edge.to) === edge.from;
+  if ((mode === 'right' || mode === 'double') && edge.kind === 'branch' && isChild) {
+    const siblings = (tree.children.get(edge.from) || [])
+      .filter(id => id !== edge.to && rects.has(id))
+      .map(id => rects.get(id));
+    const routed = routedBranchCurve(from, to, siblings, layoutOptions.nodeGap);
+    if (routed) return routed;
+  }
+  const side = mode === 'down' && isChild && to.y >= from.y + from.h ? 'down' : undefined;
+  return linkCurve(from, to, false, shape, side);
+}
+
 let nodeDepths = new Map();
 
 function mixHex(hexA, hexB, ratio) {
@@ -234,7 +318,11 @@ function ensureEdgeMarker(color) {
 
 function renderEdges(positions = activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions, dirtyNodeIds = null) {
   const nodes = new Map(effectiveNodes(positions).filter(node => !visibility.hidden.has(node.id)).map(node => [node.id, cardRect(node)]));
-  const downward = displayedLayout().options.mode === 'down';
+  const layout = displayedLayout().options;
+  const horizontalTree = layout.mode === 'right' || layout.mode === 'double';
+  const dirtyParents = dirtyNodeIds && horizontalTree
+    ? new Set([...dirtyNodeIds].map(id => hierarchy.parent.get(id)).filter(Boolean))
+    : null;
   const currentEdges = board().edges;
   const visibleEdgeIds = new Set();
   for (const edge of currentEdges) {
@@ -252,7 +340,8 @@ function renderEdges(positions = activeLayoutPositions || gesture?.positions || 
     let view = edgeIndex.get(edge.id);
     const dimmed = visibility.dimmed.has(edge.from) || visibility.dimmed.has(edge.to);
     const active = selection.kind === 'edge' && selection.id === edge.id;
-    if (view && dirtyNodeIds && !dirtyNodeIds.has(edge.from) && !dirtyNodeIds.has(edge.to)) {
+    if (view && dirtyNodeIds && !dirtyNodeIds.has(edge.from) && !dirtyNodeIds.has(edge.to) &&
+        !(edge.kind === 'branch' && dirtyParents?.has(edge.from))) {
       view.element.classList.toggle('is-dimmed', dimmed);
       view.path.classList.toggle('selected', active);
       continue;
@@ -261,8 +350,7 @@ function renderEdges(positions = activeLayoutPositions || gesture?.positions || 
     const style = edgeStyle(edge);
     const from = nodes.get(edge.from);
     const to = nodes.get(edge.to);
-    const side = downward && hierarchy.parent.get(edge.to) === edge.from && to.y >= from.y + from.h ? 'down' : undefined;
-    const curve = linkCurve(from, to, false, style.shape, side);
+    const curve = branchEdgeCurve(edge, from, to, nodes, hierarchy, layout, style.shape);
 
     if (!view) {
       const element = svg('g', { 'data-edge': edge.id, role: 'group' });

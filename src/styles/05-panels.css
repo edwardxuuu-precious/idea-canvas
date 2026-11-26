@@ -169,7 +169,7 @@
   display: grid; place-items: center; font-size: 11px; background: var(--glass); color: var(--muted);
   opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease;
 }
-.inspector-theme-card:hover .inspector-theme-del, .inspector-theme-del:focus-visible { opacity: 1; }
+.inspector-theme-wrap:hover .inspector-theme-del, .inspector-theme-del:hover, .inspector-theme-del:focus-visible { opacity: 1; }
 .inspector-theme-del:hover { background: #dc2626; color: #fff; }
 .inspector-tone-pills { display: flex; flex-wrap: wrap; gap: 5px; }
 .inspector-tone-pill {
@@ -372,7 +372,7 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
   background: var(--board-accent, var(--green)); border-color: var(--board-accent, var(--green)); color: #fff;
 }
 .card-fold[aria-expanded="false"]:hover { filter: brightness(0.92); background: var(--board-accent, var(--green)); color: #fff; }
-#viewport.is-hand :is(.card-fold,button.card-chip), #viewport.is-link :is(.card-fold,button.card-chip) { pointer-events: none; }
+#viewport.is-hand :is(.card-fold,button.card-chip,.check-box,a[href],.card-cover img,.card-body img), #viewport.is-link :is(.card-fold,button.card-chip,.check-box,a[href],.card-cover img,.card-body img) { pointer-events: none; }
 .stage:has(:is(#layout-panel,#inspector-panel,#views-panel):not([hidden])) #idle-tip { display: none; }
 .stage:has(:is(#inspector-panel,#views-panel,#layout-panel):not([hidden])) #map-panel { display: none; }
 

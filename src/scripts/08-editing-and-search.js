@@ -348,7 +348,7 @@ async function addPictures(files) {
         }
         const image = document.createElement('img');
         image.src = data;
-        image.alt = (file.name || '卡片图片').slice(0, 140);
+        image.alt = sliceChars(file.name || '卡片图片', 140);
         images.append(image);
         length += data.length + 200;
       } catch (error) {
@@ -415,8 +415,26 @@ function maybeConvertChecklistShortcut(container, editCallback) {
     item.setAttribute('data-done', match[1] && match[1] !== ' ' ? 'true' : 'false');
     item.append(rest || document.createElement('br'));
     ul.append(item);
-    if (block && block.parentElement === container) block.replaceWith(ul);
-    else node.replaceWith(ul);
+    const hasPreceding = block && (() => {
+      for (let prev = node.previousSibling; prev; prev = prev.previousSibling) {
+        if (prev.nodeType === Node.TEXT_NODE && prev.textContent.trim()) return true;
+        if (prev.nodeType === Node.ELEMENT_NODE && prev.tagName !== 'BR') return true;
+      }
+      return false;
+    })();
+    if (block && block.parentElement === container && !hasPreceding && !node.nextSibling) {
+      block.replaceWith(ul);
+    } else if (block && block.parentElement === container && hasPreceding) {
+      const prevBr = node.previousSibling?.nodeName === 'BR' ? node.previousSibling : null;
+      const tail = [];
+      for (let sib = node.nextSibling; sib; sib = sib.nextSibling) tail.push(sib);
+      node.remove();
+      if (prevBr) prevBr.remove();
+      for (const sib of tail) item.append(sib);
+      block.after(ul);
+    } else {
+      node.replaceWith(ul);
+    }
     const newRange = document.createRange();
     newRange.setStart(item, 0);
     newRange.collapse(true);
@@ -461,7 +479,7 @@ function repairSplitChecklist(container, inputEvent) {
   if (!block || block.parentElement !== container || block.hasAttribute('data-exit-check')) return;
   const prev = block.previousElementSibling;
   if (prev?.nodeName !== 'UL' || !prev.lastElementChild?.matches?.('li[data-done]')) return;
-  if (inputEvent?.inputType !== 'insertParagraph' && block.textContent.trim() !== '') return;
+  if (inputEvent?.inputType !== 'insertParagraph') return;
   const nextLi = document.createElement('li');
   nextLi.setAttribute('data-done', 'false');
   while (block.firstChild) nextLi.append(block.firstChild);
@@ -495,7 +513,7 @@ function handleChecklistEnter(event, container, editCallback) {
       nextLi.setAttribute('data-done', 'false');
       nextLi.append(document.createElement('br'));
       ul.append(li, nextLi);
-      if (block && block.parentElement === container) block.replaceWith(ul);
+      if (block && block.parentElement === container && !anchor.previousSibling && !anchor.nextSibling) block.replaceWith(ul);
       else anchor.replaceWith(ul);
       const nextRange = document.createRange();
       nextRange.setStart(nextLi, 0);
@@ -509,15 +527,25 @@ function handleChecklistEnter(event, container, editCallback) {
   if (!li || !container.contains(li)) return false;
   event.preventDefault();
   event.stopImmediatePropagation?.();
-  const text = li.textContent.trim();
-  if (!text) {
+  const isEmpty = !li.textContent.trim() && !li.querySelector('img');
+  if (isEmpty) {
     const ul = li.parentElement;
     const div = document.createElement('div');
     div.dataset.exitCheck = '1';
     div.append(document.createElement('br'));
+    const trailing = [];
+    for (let sib = li.nextElementSibling; sib; sib = sib.nextElementSibling) trailing.push(sib);
     li.remove();
-    if (!ul.children.length) ul.replaceWith(div);
-    else ul.after(div);
+    if (!ul.children.length) {
+      ul.replaceWith(div);
+    } else if (trailing.length) {
+      const restUl = document.createElement('ul');
+      for (const item of trailing) restUl.append(item);
+      if (!ul.children.length) ul.replaceWith(div, restUl);
+      else ul.after(div, restUl);
+    } else {
+      ul.after(div);
+    }
     const nextRange = document.createRange();
     nextRange.setStart(div, 0);
     nextRange.collapse(true);
@@ -526,9 +554,19 @@ function handleChecklistEnter(event, container, editCallback) {
     editCallback();
     return true;
   }
+  const range = sel.getRangeAt(0);
   const nextLi = document.createElement('li');
   nextLi.setAttribute('data-done', 'false');
-  nextLi.append(document.createElement('br'));
+  if (li.contains(range.endContainer)) {
+    if (!range.collapsed) range.deleteContents();
+    const tailRange = document.createRange();
+    tailRange.setStart(range.endContainer, range.endOffset);
+    tailRange.setEnd(li, li.childNodes.length);
+    const tailFrag = tailRange.extractContents();
+    if (tailFrag.textContent.length || tailFrag.querySelector?.('img')) nextLi.append(tailFrag);
+  }
+  if (!li.textContent.length && !li.querySelector('img')) li.append(document.createElement('br'));
+  if (!nextLi.firstChild) nextLi.append(document.createElement('br'));
   li.after(nextLi);
   const nextRange = document.createRange();
   nextRange.setStart(nextLi, 0);
@@ -1010,6 +1048,7 @@ function commitText() {
   if (kind === 'board-new') {
     const next = CanvasData.makeBoard(text);
     workspace.boards.push(next);
+    invalidateCrossBoardUndo();
     switchBoard(next.id);
     return;
   }
@@ -1042,10 +1081,7 @@ function deleteBoard() {
     }
   }
   history.delete(deletedId);
-  for (const stack of history.values()) {
-    stack.past = stack.past.filter(entry => !entry.workspaceBoards);
-    stack.future = stack.future.filter(entry => !entry.workspaceBoards);
-  }
+  invalidateCrossBoardUndo();
   switchBoard(workspace.boards[Math.min(index, workspace.boards.length - 1)].id);
   toast('已删除画布');
 }

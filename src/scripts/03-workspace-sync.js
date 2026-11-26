@@ -417,10 +417,7 @@ function adoptShared(snapshot) {
     }
   }
   if (changedAny) {
-    for (const stack of history.values()) {
-      stack.past = stack.past.filter(entry => !entry.workspaceBoards);
-      stack.future = stack.future.filter(entry => !entry.workspaceBoards);
-    }
+    invalidateCrossBoardUndo(null, true);
   }
   const sameBoard = received.boards.some(item => item.id === activeId);
   const before = sameBoard ? capturePositions() : null;
@@ -581,7 +578,20 @@ function snapshot(withView = false, withThemes = false, withWorkspace = false) {
     ...(withThemes ? { themes: workspace.themes } : {}) });
 }
 
+function invalidateCrossBoardUndo(exceptBoardId = null, clearThemes = false) {
+  for (const [id, stack] of history) {
+    if (id === exceptBoardId) continue;
+    stack.past = stack.past.filter(entry => !entry.workspaceBoards);
+    stack.future = stack.future.filter(entry => !entry.workspaceBoards);
+    if (clearThemes) {
+      for (const entry of stack.past) delete entry.themes;
+      for (const entry of stack.future) delete entry.themes;
+    }
+  }
+}
+
 function checkpoint(withView = false, withThemes = false, withWorkspace = false) {
+  invalidateCrossBoardUndo(withWorkspace ? null : workspace.activeId, withThemes);
   const { past, future } = selectedBoardHistory();
   past.push(snapshot(withView, withThemes, withWorkspace));
   if (past.length > 60) past.shift();

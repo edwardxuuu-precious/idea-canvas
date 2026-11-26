@@ -15,7 +15,6 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     private var webView: WKWebView?
     private var layoutURL: URL?
     private var terminationPending = false
-    private var approvedToQuit = false
     private var openedLayout = false
 
     init(dataRoot: URL) {
@@ -149,7 +148,7 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     @objc private func copySyncLink() {
-        guard let window else { return }
+        guard let window, window.attachedSheet == nil else { return }
         let alert = NSAlert()
         do {
             guard syncReady, let server = syncServer else {
@@ -186,18 +185,21 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !approvedToQuit, let webView, let window else { return .terminateNow }
-        guard !terminationPending else { return .terminateCancel }
+        guard let webView, let window else { return .terminateNow }
+        guard !terminationPending else { return .terminateLater }
         terminationPending = true
         Task { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                sender.reply(toApplicationShouldTerminate: true)
+                return
+            }
             let saved = try? await webView.callAsyncJavaScript(
                 "return window.ideaCanvasBeforeQuit ? await window.ideaCanvasBeforeQuit() : true;",
                 arguments: [:], in: nil, contentWorld: .page
             )
             if saved as? Bool == true {
-                self.approvedToQuit = true
-                sender.terminate(nil)
+                self.terminationPending = false
+                sender.reply(toApplicationShouldTerminate: true)
                 return
             }
             let alert = NSAlert()
@@ -209,14 +211,10 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
             NSApp.activate(ignoringOtherApps: true)
             alert.beginSheetModal(for: window) { response in
                 self.terminationPending = false
-                if response == .alertSecondButtonReturn {
-                    self.approvedToQuit = true
-                    sender.terminate(nil)
-                }
+                sender.reply(toApplicationShouldTerminate: response == .alertSecondButtonReturn)
             }
         }
-        // Let WebKit and its save reply run in the normal event loop before quitting.
-        return .terminateCancel
+        return .terminateLater
     }
 
     func userContentController(
@@ -453,7 +451,7 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
                 sender.state = .off
             }
         } catch {
-            if let window {
+            if let window, window.attachedSheet == nil {
                 let alert = NSAlert()
                 alert.messageText = "无法切换本机 AI / MCP 接入状态"
                 alert.informativeText = error.localizedDescription
@@ -466,7 +464,11 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     private func runCanvasCommand(_ name: String, nativeFallback: Selector? = nil) {
-        if let nativeFallback, let window, window.attachedSheet != nil || NSApp.keyWindow !== window {
+        if let window, window.attachedSheet != nil {
+            if let nativeFallback { NSApp.sendAction(nativeFallback, to: nil, from: nil) }
+            return
+        }
+        if let nativeFallback, let window, NSApp.keyWindow !== window {
             NSApp.sendAction(nativeFallback, to: nil, from: nil)
             return
         }

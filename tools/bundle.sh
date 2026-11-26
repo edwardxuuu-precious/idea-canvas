@@ -13,14 +13,17 @@ bundle() {
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" =~ $include ]]; then
             cat "$src_dir/${BASH_REMATCH[1]}"
+            printf '\n'
         else
             printf '%s\n' "$line"
         fi
     done < "$src_dir/index.html"
 }
 
-staged="$(mktemp "${TMPDIR:-/tmp}/idea-canvas-bundle.XXXXXXXX")"
+staged="$(mktemp "$project_dir/.bundle.XXXXXXXX")"
 trap 'rm -f -- "$staged"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 bundle > "$staged"
 
 if [[ "${1:-}" == "--check" ]]; then

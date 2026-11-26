@@ -23,6 +23,16 @@ struct CanvasSyncConflict: LocalizedError, Sendable {
     var errorDescription: String? { "画布已在其他窗口更新。" }
 }
 
+struct CanvasValidationError: LocalizedError, Sendable {
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var errorDescription: String? { message }
+}
+
 private struct DiskWorkspaceError: LocalizedError {
     let message: String
 
@@ -129,58 +139,58 @@ private struct DiskSnapshot {
 
     init(_ bytes: Data) throws {
         guard let json = String(data: bytes, encoding: .utf8), !json.hasPrefix("\u{feff}") else {
-            throw DiskWorkspaceError("画布数据必须是 UTF-8 编码的 JSON。")
+            throw CanvasValidationError("画布数据必须是 UTF-8 编码的 JSON。")
         }
         let workspace: Workspace
         do {
             workspace = try JSONDecoder().decode(Workspace.self, from: bytes)
         } catch {
-            throw DiskWorkspaceError("画布 JSON 损坏或缺少必要字段。")
+            throw CanvasValidationError("画布 JSON 损坏或缺少必要字段。")
         }
         guard (1...3).contains(workspace.version) else {
-            throw DiskWorkspaceError("无法读取此版本的画布数据。")
+            throw CanvasValidationError("无法读取此版本的画布数据。")
         }
         var boardIDs = Set<String>()
         for board in workspace.boards {
             guard Self.validID(board.id), boardIDs.insert(board.id).inserted else {
-                throw DiskWorkspaceError("画布标识无效或重复。")
+                throw CanvasValidationError("画布标识无效或重复。")
             }
             if let view = board.view {
                 guard Self.validCoordinate(view.x), Self.validCoordinate(view.y), (0.08...3).contains(view.scale) else {
-                    throw DiskWorkspaceError("画布视图的位置或缩放比例无效。")
+                    throw CanvasValidationError("画布视图的位置或缩放比例无效。")
                 }
             }
             var cardIDs = Set<String>()
             for card in board.nodes {
                 guard Self.validID(card.id), cardIDs.insert(card.id).inserted else {
-                    throw DiskWorkspaceError("卡片标识无效或重复。")
+                    throw CanvasValidationError("卡片标识无效或重复。")
                 }
                 guard Self.validCoordinate(card.x), Self.validCoordinate(card.y),
                       (64...1_000_000).contains(card.w), (36...1_000_000).contains(card.h) else {
-                    throw DiskWorkspaceError("卡片位置或尺寸无效。")
+                    throw CanvasValidationError("卡片位置或尺寸无效。")
                 }
                 if let subBoardId = card.subBoardId {
                     guard Self.validID(subBoardId) else {
-                        throw DiskWorkspaceError("子画布标识无效。")
+                        throw CanvasValidationError("子画布标识无效。")
                     }
                 }
                 if let note = card.note {
                     guard note.utf8.count <= 16_000 else {
-                        throw DiskWorkspaceError("卡片备注长度超出限制。")
+                        throw CanvasValidationError("卡片备注长度超出限制。")
                     }
                 }
                 if let sources = card.sources {
                     guard sources.count <= 64 else {
-                        throw DiskWorkspaceError("卡片来源数量超出限制。")
+                        throw CanvasValidationError("卡片来源数量超出限制。")
                     }
                     for source in sources {
                         let trimmedLabel = source.label.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmedLabel.isEmpty, trimmedLabel.utf8.count <= 600 else {
-                            throw DiskWorkspaceError("卡片来源名称无效。")
+                            throw CanvasValidationError("卡片来源名称无效。")
                         }
                         if let url = source.url {
                             guard url.utf8.count <= 4096 else {
-                                throw DiskWorkspaceError("卡片来源链接超出限制。")
+                                throw CanvasValidationError("卡片来源链接超出限制。")
                             }
                         }
                     }
@@ -190,16 +200,16 @@ private struct DiskSnapshot {
             var pairs = Set<String>()
             for edge in board.edges {
                 guard Self.validID(edge.id), edgeIDs.insert(edge.id).inserted else {
-                    throw DiskWorkspaceError("连线标识无效或重复。")
+                    throw CanvasValidationError("连线标识无效或重复。")
                 }
                 guard cardIDs.contains(edge.from), cardIDs.contains(edge.to), edge.from != edge.to else {
-                    throw DiskWorkspaceError("连线必须连接两张不同的卡片。")
+                    throw CanvasValidationError("连线必须连接两张不同的卡片。")
                 }
                 let pair = edge.from < edge.to ? "\(edge.from):\(edge.to)" : "\(edge.to):\(edge.from)"
-                guard pairs.insert(pair).inserted else { throw DiskWorkspaceError("两张卡片间的连线重复。") }
+                guard pairs.insert(pair).inserted else { throw CanvasValidationError("两张卡片间的连线重复。") }
             }
         }
-        guard boardIDs.contains(workspace.activeId) else { throw DiskWorkspaceError("找不到当前画布。") }
+        guard boardIDs.contains(workspace.activeId) else { throw CanvasValidationError("找不到当前画布。") }
         self.bytes = bytes
         self.json = json
         self.workspace = workspace
@@ -356,7 +366,7 @@ final class DiskWorkspace: @unchecked Sendable {
         }
         let next = try DiskSnapshot(bytes)
         if let version = previous?.workspace.version, next.workspace.version < version {
-            throw DiskWorkspaceError("请刷新浏览器页面，再同步这份画布。")
+            throw CanvasValidationError("请刷新浏览器页面，再同步这份画布。")
         }
         if let previous, !next.sameContent(as: previous) {
             try preserveHistory(previous, beforeDeletion: next.deletesContent(from: previous))

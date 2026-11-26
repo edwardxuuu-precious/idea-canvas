@@ -231,6 +231,7 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const statusMap = new Map(current.settings.statuses.map(s => [s.id, s]));
   const tagMap = new Map(current.settings.tags.map(t => [t.id, t]));
   const linkedSubBoards = new Set(workspace.boards.flatMap(b => b.nodes.map(n => n.subBoardId).filter(Boolean)));
+  const existingBoards = new Map(workspace.boards.map(b => [b.id, b]));
   const box = boundsOf(payload.nodes);
   const centerX = box ? (box.left + box.right) / 2 : 0;
   const centerY = box ? (box.top + box.bottom) / 2 : 0;
@@ -245,7 +246,13 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const inserted = payload.nodes.map(n => {
     const copy = structuredClone(n);
     copy.id = idMap.get(n.id);
-    if (copy.subBoardId === current.id || linkedSubBoards.has(copy.subBoardId)) delete copy.subBoardId;
+    if (copy.subBoardId) {
+      if (!existingBoards.has(copy.subBoardId) || copy.subBoardId === current.id || linkedSubBoards.has(copy.subBoardId)) {
+        delete copy.subBoardId;
+      } else {
+        existingBoards.get(copy.subBoardId).settings.parentId = current.id;
+      }
+    }
     copy.x = coordinate(anchorWorld.x + (n.x - centerX));
     copy.y = coordinate(anchorWorld.y + (n.y - centerY));
     return copy;
@@ -271,8 +278,10 @@ async function handleCanvasPaste(clipboardData) {
     try {
       const data = await pictureData(files[0]);
       if (!canAddPictureBytes(data.length + 200)) return toast('画布图片存储空间已满', 'error');
-      const html = `<img src="${data}" alt="${node.title}">`;
-      const clean = richContent(html);
+      const img = document.createElement('img');
+      img.src = data;
+      img.alt = sliceChars(node.title, 140);
+      const clean = richContent(img.outerHTML);
       node.body = clean.text;
       node.richBody = clean.html;
       applyChange(() => {
@@ -326,9 +335,9 @@ async function handleCanvasPaste(clipboardData) {
     node.title = new URL(safeUrl).hostname.replace(/^www\./, '');
     node.body = safeUrl;
   } else {
-    const lines = text.trim().split(/\r?\n/);
-    node.title = lines[0].slice(0, 80);
-    node.body = lines.length > 1 ? lines.slice(1).join('\n') : (lines[0].length > 80 ? lines[0] : '');
+    const lines = sanitizeUnicode(text.trim()).split(/\r?\n/);
+    node.title = sliceChars(lines[0], 80);
+    node.body = lines.length > 1 ? lines.slice(1).join('\n') : ([...lines[0]].length > 80 ? lines[0] : '');
   }
   applyChange(() => {
     board().nodes.push(node);
@@ -488,6 +497,7 @@ async function importFile(file) {
       }
       workspace.boards.push(item);
     }
+    invalidateCrossBoardUndo(null, incoming.themes?.length > 0);
     switchBoard(idMap.get(incoming.activeId) || incoming.boards[0].id);
     toast('已导入 ' + incoming.boards.length + ' 张画布');
   } catch (error) {

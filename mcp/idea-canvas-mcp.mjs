@@ -138,9 +138,34 @@ export function isValidId(value) {
   return typeof value === 'string' && ID_RE.test(value);
 }
 
+const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function containsLoneSurrogate(value) {
+  if (typeof value === 'string') return LONE_SURROGATE_RE.test(value);
+  if (Array.isArray(value)) return value.some(containsLoneSurrogate);
+  if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      if (LONE_SURROGATE_RE.test(k) || containsLoneSurrogate(v)) return true;
+    }
+  }
+  return false;
+}
+
+function lstatOrNull(targetPath) {
+  try {
+    return fs.lstatSync(targetPath);
+  } catch (err) {
+    if (err?.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
 export function validateWorkspace(space, label = '画布工作区') {
   if (!space || typeof space !== 'object' || ![1, 2, 3].includes(space.version)) {
     throw new CanvasToolError(`${label}版本号无效。`, 'invalid_workspace');
+  }
+  if (containsLoneSurrogate(space)) {
+    throw new CanvasToolError(`${label}包含无效的 Unicode 代理字符。`, 'invalid_workspace');
   }
   if (!Array.isArray(space.boards) || space.boards.length === 0) {
     throw new CanvasToolError(`${label}缺少画布列表。`, 'invalid_workspace');
@@ -207,6 +232,21 @@ export function validateWorkspace(space, label = '画布工作区') {
       if (card.subBoardId !== undefined && card.subBoardId !== null && !isValidId(card.subBoardId)) {
         throw new CanvasToolError(`${label}子画布 ID 无效：${card.id}`, 'invalid_workspace');
       }
+      if (card.status !== undefined && card.status !== null && typeof card.status !== 'string') {
+        throw new CanvasToolError(`${label}卡片状态字段类型无效：${card.id}`, 'invalid_workspace');
+      }
+      if (card.priority !== undefined && card.priority !== null && (typeof card.priority !== 'string' || !VALID_PRIORITIES.has(card.priority))) {
+        throw new CanvasToolError(`${label}卡片优先级字段无效：${card.id}`, 'invalid_workspace');
+      }
+      if (card.tags !== undefined && card.tags !== null && (!Array.isArray(card.tags) || !card.tags.every((t) => typeof t === 'string'))) {
+        throw new CanvasToolError(`${label}卡片标签字段类型无效：${card.id}`, 'invalid_workspace');
+      }
+      if (card.pinned !== undefined && card.pinned !== null && typeof card.pinned !== 'boolean') {
+        throw new CanvasToolError(`${label}卡片固定字段类型无效：${card.id}`, 'invalid_workspace');
+      }
+      if (card.order !== undefined && card.order !== null && (typeof card.order !== 'number' || !Number.isFinite(card.order))) {
+        throw new CanvasToolError(`${label}卡片排序字段类型无效：${card.id}`, 'invalid_workspace');
+      }
       if (card.note !== undefined && card.note !== null) {
         if (typeof card.note !== 'string') {
           throw new CanvasToolError(`${label}卡片备注无效：${card.id}`, 'invalid_workspace');
@@ -264,15 +304,15 @@ export function validateWorkspace(space, label = '画布工作区') {
 
 export function readLocalApiToken(dataDir) {
   const disabledMarker = path.join(dataDir, 'local-api.disabled');
-  if (fs.existsSync(disabledMarker)) {
+  if (lstatOrNull(disabledMarker)) {
     return { enabled: false, token: null };
   }
   const keyPath = path.join(dataDir, 'local-api.key');
-  if (!fs.existsSync(keyPath)) {
+  const stat = lstatOrNull(keyPath);
+  if (!stat) {
     return { enabled: true, token: null };
   }
-  const stat = fs.lstatSync(keyPath);
-  if (!stat.isFile() || (stat.mode & 0o077) !== 0 || stat.size !== 32) {
+  if (!stat.isFile() || stat.uid !== process.getuid() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0 || stat.size !== 32) {
     throw new CanvasToolError('local-api.key 权限或格式无效（需为当前用户 0600 权限的 32 字节密钥）。', 'invalid_key');
   }
   const buf = fs.readFileSync(keyPath);
@@ -358,6 +398,8 @@ function httpCall(port, method, reqPath, { bearer, body, expectedStatuses }) {
   return new Promise((resolve, reject) => {
     const sock = net.createConnection({ host: '127.0.0.1', port });
     const chunks = [];
+    let totalBytes = 0;
+    let headerMeta = null;
     let settled = false;
     const settleOk = (res) => {
       if (settled) return;
@@ -371,11 +413,33 @@ function httpCall(port, method, reqPath, { bearer, body, expectedStatuses }) {
       sock.destroy();
       reject(err);
     };
+    const inspectHeaders = () => {
+      const buf = Buffer.concat(chunks, totalBytes);
+      const sep = buf.indexOf('\r\n\r\n');
+      if (sep === -1) return null;
+      const headText = buf.subarray(0, sep).toString('utf8');
+      const [statusLine, ...rawHeaders] = headText.split('\r\n');
+      const m = statusLine.match(/^HTTP\/1\.[01]\s+(\d{3})/);
+      if (!m) {
+        return { error: new CanvasToolError(`无法解析 HTTP 状态行：${statusLine}`, 'http_error') };
+      }
+      let isChunked = false;
+      let contentLength = null;
+      for (const h of rawHeaders) {
+        const idx = h.indexOf(':');
+        if (idx <= 0) continue;
+        const name = h.slice(0, idx).trim().toLowerCase();
+        const val = h.slice(idx + 1).trim();
+        if (name === 'transfer-encoding' && val.toLowerCase().includes('chunked')) isChunked = true;
+        if (name === 'content-length' && /^\d+$/.test(val)) contentLength = Number(val);
+      }
+      return { headerBytes: sep + 4, statusCode: Number(m[1]), isChunked, contentLength };
+    };
     sock.setTimeout(10_000, () => {
       settleErr(Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' }));
     });
     sock.on('error', (err) => {
-      const parsed = chunks.length ? parseHttpResponse(chunks, expectedStatuses, true) : null;
+      const parsed = chunks.length ? parseHttpResponse(chunks, expectedStatuses, false) : null;
       if (parsed?.error) return settleErr(parsed.error);
       if (parsed?.result) return settleOk(parsed.result);
       settleErr(err);
@@ -385,6 +449,20 @@ function httpCall(port, method, reqPath, { bearer, body, expectedStatuses }) {
     });
     sock.on('data', (chunk) => {
       chunks.push(chunk);
+      totalBytes += chunk.length;
+      if (!headerMeta) {
+        const inspected = inspectHeaders();
+        if (!inspected) return;
+        if (inspected.error) return settleErr(inspected.error);
+        headerMeta = inspected;
+      }
+      if (!headerMeta.isChunked) {
+        if (headerMeta.contentLength !== null) {
+          if (totalBytes - headerMeta.headerBytes < headerMeta.contentLength) return;
+        } else if (headerMeta.statusCode !== 204 && headerMeta.statusCode !== 304) {
+          return;
+        }
+      }
       const parsed = parseHttpResponse(chunks, expectedStatuses, false);
       if (parsed.error) return settleErr(parsed.error);
       if (parsed.result) return settleOk(parsed.result);
@@ -449,14 +527,24 @@ function deletesContent(nextSpace, prevSpace) {
   });
 }
 
+function hasJsonBackups(dataDir) {
+  const backupDir = path.join(dataDir, '历史备份');
+  const bStat = lstatOrNull(backupDir);
+  if (!bStat || !bStat.isDirectory()) return false;
+  return fs.readdirSync(backupDir).some((name) => name.endsWith('.json'));
+}
+
 function offlineRead(dataDir) {
   const filePath = path.join(dataDir, '画布数据.json');
-  if (!fs.existsSync(filePath)) {
+  const stat = lstatOrNull(filePath);
+  if (!stat) {
+    if (hasJsonBackups(dataDir)) {
+      throw new CanvasToolError('主数据文件缺失。可通过「文件」打开历史备份。', 'missing_main_file');
+    }
     return { mode: 'offline', revision: 'empty', space: null };
   }
-  const stat = fs.lstatSync(filePath);
-  if (!stat.isFile()) {
-    throw new CanvasToolError('画布数据.json 必须是普通文件，且不能是符号链接。', 'invalid_workspace');
+  if (!stat.isFile() || stat.uid !== process.getuid() || stat.nlink !== 1) {
+    throw new CanvasToolError('画布数据.json 必须是当前用户拥有的普通文件，且不能是链接。', 'invalid_workspace');
   }
   const bytes = fs.readFileSync(filePath);
   const space = validateWorkspace(JSON.parse(bytes.toString('utf8')), '离线画布数据');
@@ -466,12 +554,10 @@ function offlineRead(dataDir) {
 function offlineWrite(dataDir, nextJson, expectedRevision) {
   fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const nextSpace = validateWorkspace(JSON.parse(nextJson), '待写入画布数据');
-  const backupDir = path.join(dataDir, '历史备份');
-  fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
 
   const py = [
-    'import errno, fcntl, hashlib, os, stat, sys, uuid',
-    'data_dir, expected_rev, next_file, backup_daily, backup_del = sys.argv[1:6]',
+    'import errno, fcntl, hashlib, json, os, stat, sys, uuid',
+    'data_dir, expected_rev, next_file, day, del_suffix = sys.argv[1:6]',
     'def write_all(fd, payload):',
     '    mv = memoryview(payload)',
     '    written = 0',
@@ -479,26 +565,61 @@ function offlineWrite(dataDir, nextJson, expectedRevision) {
     '        n = os.write(fd, mv[written:])',
     '        if n <= 0: raise OSError(errno.EIO, "short write")',
     '        written += n',
-    'def safe_stage(directory, filename, payload):',
-    '    tmp = os.path.join(directory, ".写入-" + str(uuid.uuid4()) + ".tmp")',
-    '    sfd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)',
+    'def safe_stage_fd(dir_fd, filename, payload, excl=False):',
+    '    tmp = ".写入-" + str(uuid.uuid4()) + ".tmp"',
+    '    sfd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)',
     '    try:',
     '        write_all(sfd, payload); os.fsync(sfd)',
     '        os.close(sfd); sfd = -1',
-    '        os.replace(tmp, os.path.join(directory, filename))',
+    '        if excl:',
+    '            try:',
+    '                os.stat(filename, dir_fd=dir_fd, follow_symlinks=False)',
+    '                os.unlink(tmp, dir_fd=dir_fd)',
+    '                return',
+    '            except FileNotFoundError:',
+    '                pass',
+    '        os.rename(tmp, filename, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)',
     '    except:',
     '        if sfd >= 0: os.close(sfd)',
-    '        try: os.unlink(tmp)',
+    '        try: os.unlink(tmp, dir_fd=dir_fd)',
     '        except OSError: pass',
     '        raise',
+    'def board_content(b):',
+    '    return (b.get("id"), b.get("name"), b.get("nodes"), b.get("edges"), b.get("settings"))',
+    'def same_content(a, b):',
+    '    ab, bb = a.get("boards", []), b.get("boards", [])',
+    '    if a.get("themes") != b.get("themes") or len(ab) != len(bb): return False',
+    '    return all(board_content(x) == board_content(y) for x, y in zip(ab, bb))',
+    'def deletes_content(nxt, old):',
+    '    cur = {b.get("id"): b for b in nxt.get("boards", [])}',
+    '    for ob in old.get("boards", []):',
+    '        nb = cur.get(ob.get("id"))',
+    '        if nb is None: return True',
+    '        nids = {n.get("id") for n in nb.get("nodes", [])}',
+    '        eids = {e.get("id") for e in nb.get("edges", [])}',
+    '        if any(n.get("id") not in nids for n in ob.get("nodes", [])): return True',
+    '        if any(e.get("id") not in eids for e in ob.get("edges", [])): return True',
+    '    return False',
     'with open(next_file, "rb") as f: next_bytes = f.read()',
+    'next_obj = json.loads(next_bytes.decode("utf-8"))',
     'fd = os.open(data_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)',
+    'backup_fd = -1',
     'try:',
+    '    st_dir = os.fstat(fd)',
+    '    if st_dir.st_uid != os.geteuid():',
+    '        raise RuntimeError("画布文件夹必须归当前用户所有。")',
     '    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)',
-    '    main_path = os.path.join(data_dir, "画布数据.json")',
+    '    try:',
+    '        os.mkdir("历史备份", 0o700, dir_fd=fd)',
+    '    except FileExistsError:',
+    '        pass',
+    '    backup_fd = os.open("历史备份", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)',
+    '    st_bak = os.fstat(backup_fd)',
+    '    if st_bak.st_uid != os.geteuid():',
+    '        raise RuntimeError("历史备份文件夹必须归当前用户所有。")',
     '    prev_bytes = None',
     '    try:',
-    '        rfd = os.open(main_path, os.O_RDONLY | os.O_NOFOLLOW)',
+    '        rfd = os.open("画布数据.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)',
     '        try:',
     '            st = os.fstat(rfd)',
     '            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_nlink != 1:',
@@ -512,41 +633,41 @@ function offlineWrite(dataDir, nextJson, expectedRevision) {
     '        finally: os.close(rfd)',
     '    except FileNotFoundError:',
     '        prev_bytes = None',
+    '    if prev_bytes is None:',
+    '        if any(name.endswith(".json") for name in os.listdir(backup_fd)):',
+    '            print("MISSING_MAIN")',
+    '            sys.exit(3)',
     '    cur_rev = "empty" if prev_bytes is None else "sha256-" + hashlib.sha256(prev_bytes).hexdigest()',
     '    if expected_rev and cur_rev != expected_rev:',
     '        print("CONFLICT:" + cur_rev)',
     '        sys.exit(2)',
-    '    if prev_bytes is not None and backup_daily:',
-    '        daily_path = os.path.join(data_dir, "历史备份", backup_daily)',
-    '        if not os.path.exists(daily_path):',
-    '            safe_stage(os.path.join(data_dir, "历史备份"), backup_daily, prev_bytes)',
-    '    if prev_bytes is not None and backup_del:',
-    '        safe_stage(os.path.join(data_dir, "历史备份"), backup_del, prev_bytes)',
-    '    safe_stage(data_dir, "画布数据.json", next_bytes)',
+    '    if prev_bytes is not None:',
+    '        prev_obj = json.loads(prev_bytes.decode("utf-8"))',
+    '        if not same_content(next_obj, prev_obj):',
+    '            safe_stage_fd(backup_fd, "每日-" + day + ".json", prev_bytes, excl=True)',
+    '            if deletes_content(next_obj, prev_obj):',
+    '                safe_stage_fd(backup_fd, "删除前-" + day + "-" + del_suffix + ".json", prev_bytes, excl=True)',
+    '            os.fsync(backup_fd)',
+    '    safe_stage_fd(fd, "画布数据.json", next_bytes, excl=False)',
     '    os.fsync(fd)',
     '    print("sha256-" + hashlib.sha256(next_bytes).hexdigest())',
     'finally:',
+    '    if backup_fd >= 0: os.close(backup_fd)',
     '    os.close(fd)',
   ].join('\n');
 
-  const filePath = path.join(dataDir, '画布数据.json');
-  const prevBytes = fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
-  const prevSpace = prevBytes ? validateWorkspace(JSON.parse(prevBytes.toString('utf8')), '旧画布数据') : null;
-  const changed = prevSpace && !sameWorkspaceContent(nextSpace, prevSpace);
   const now = new Date();
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
   const day = `${yyyy}-${mm}-${dd}`;
-  const backupDaily = changed ? `每日-${day}.json` : '';
-  const backupDel = changed && deletesContent(nextSpace, prevSpace) ? `删除前-${day}-${randomUUID()}.json` : '';
 
   const stageFile = path.join(os.tmpdir(), `idea-canvas-stage-${randomUUID()}.json`);
   fs.writeFileSync(stageFile, nextJson, { mode: 0o600 });
   try {
     const rev = execFileSync(
       'python3',
-      ['-c', py, dataDir, expectedRevision ?? '', stageFile, backupDaily, backupDel],
+      ['-c', py, dataDir, expectedRevision ?? '', stageFile, day, randomUUID()],
       { encoding: 'utf8' },
     ).trim();
     return { mode: 'offline', revision: rev, space: nextSpace };
@@ -554,6 +675,9 @@ function offlineWrite(dataDir, nextJson, expectedRevision) {
     const stdout = String(err?.stdout ?? '');
     if (stdout.startsWith('CONFLICT:')) {
       throw new CanvasToolError('离线画布数据在读取后已变化，请重试。', 'conflict');
+    }
+    if (stdout.startsWith('MISSING_MAIN')) {
+      throw new CanvasToolError('主数据文件缺失。可通过「文件」打开历史备份。', 'missing_main_file');
     }
     if (String(err?.stderr ?? '').includes('BlockingIOError')) {
       throw new CanvasToolError('画布数据目录正被运行中的「想法画布」锁定，无法直接写磁盘。', 'locked');
@@ -600,17 +724,18 @@ export async function loadWorkspace(cfg) {
 export async function saveWorkspace(cfg, expectedRevision, nextSpace, stateContext = null) {
   validateWorkspace(nextSpace, '待保存画布');
   const nextJson = JSON.stringify(nextSpace);
-  const { enabled, token } = stateContext?.token ? { enabled: true, token: stateContext.token } : readLocalApiToken(cfg.dataDir);
+  const { enabled, token } = readLocalApiToken(cfg.dataDir);
   if (!enabled) {
     throw new CanvasToolError(
       '已在「想法画布 → 文件 → 允许本机 AI / MCP 接入」关闭接入，请重新勾选后再操作。',
       'api_disabled',
     );
   }
-  if (stateContext?.mode === 'live' || (token && stateContext?.mode !== 'offline')) {
+  const activeToken = token ?? stateContext?.token ?? null;
+  if (stateContext?.mode === 'live' || (activeToken && stateContext?.mode !== 'offline')) {
     try {
       const res = await httpCall(cfg.port, 'PUT', '/api/state', {
-        bearer: token,
+        bearer: activeToken,
         body: { expectedRevision, json: nextJson },
         expectedStatuses: [200],
       });
@@ -662,7 +787,9 @@ export function resolveBoard(space, { boardId, boardName } = {}) {
     return found;
   }
   if (boardName) {
-    const matches = space.boards.filter((b) => b.name === boardName || b.name.includes(boardName));
+    const exact = space.boards.filter((b) => b.name === boardName);
+    if (exact.length === 1) return exact[0];
+    const matches = exact.length > 1 ? exact : space.boards.filter((b) => b.name.includes(boardName));
     if (matches.length === 0) throw new CanvasToolError(`找不到名称匹配「${boardName}」的画布。`, 'board_not_found');
     if (matches.length > 1) {
       throw new CanvasToolError(
@@ -798,14 +925,17 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
           health = JSON.parse(h.body);
           mode = 'live';
         } catch (err) {
+          if (err instanceof CanvasToolError && err.code !== 'unauthorized') throw err;
           mode = checkDirectoryLock(cfg.dataDir) ? 'locked_or_unauthorized' : 'offline';
         }
       } else if (checkDirectoryLock(cfg.dataDir)) {
         mode = 'locked_or_unauthorized';
       }
       let state = null;
-      if (mode === 'live' || mode === 'offline') {
+      if (mode === 'live') {
         state = await loadWorkspace(cfg);
+      } else if (mode === 'offline') {
+        state = offlineRead(cfg.dataDir);
       }
       return {
         mode,
@@ -1011,10 +1141,16 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
               existingPair.kind = 'branch';
             } else {
               let eid = `edge-${childId}`;
-              if (board.edges.some((e) => e.id === eid)) eid = `edge-${childId}-${randomUUID().slice(0, 8)}`;
+              if (eid.length > 128 || board.edges.some((e) => e.id === eid)) {
+                eid = `edge-${childId.slice(0, 110)}-${randomUUID().slice(0, 8)}`;
+              }
               board.edges.push({ id: eid, from: parentId, to: childId, label: '', kind: 'branch' });
             }
           }
+        }
+
+        if (board.nodes.some((n) => typeof n.order !== 'number' || !Number.isFinite(n.order))) {
+          recomputeBoardOrder(board);
         }
 
         for (const spec of args.cards) {
@@ -1653,8 +1789,14 @@ function startStdioServer() {
         const trimmedStart = probe.trimStart();
         if (trimmedStart.startsWith('{')) {
           framing = 'line';
-        } else if (/^Content-(?:Length|Type):/i.test(probe) || (buffer.includes('\r\n\r\n') && /Content-Length:/i.test(buffer.subarray(0, buffer.indexOf('\r\n\r\n')).toString('utf8')))) {
+        } else if (
+          /^Content-(?:Length|Type):/i.test(probe) ||
+          (buffer.includes('\r\n\r\n') && /Content-Length:/i.test(buffer.subarray(0, buffer.indexOf('\r\n\r\n')).toString('utf8')))
+        ) {
           framing = 'lsp';
+        } else if (/^[A-Za-z0-9-]+:\s/.test(trimmedStart)) {
+          if (!buffer.includes('\r\n\r\n')) break;
+          framing = /Content-Length:/i.test(buffer.subarray(0, buffer.indexOf('\r\n\r\n')).toString('utf8')) ? 'lsp' : 'line';
         } else if (probe.includes('\n')) {
           framing = 'line';
         } else {
@@ -1683,6 +1825,13 @@ function startStdioServer() {
         buffer = buffer.subarray(nlIdx + 1);
         chain = chain.then(() => processMessage(line)).catch(() => {});
       }
+    }
+  });
+  process.stdin.on('end', () => {
+    const tail = buffer.toString('utf8').trim();
+    if (tail && (framing === 'line' || (framing === null && tail.startsWith('{')))) {
+      buffer = Buffer.alloc(0);
+      chain = chain.then(() => processMessage(tail)).catch(() => {});
     }
   });
 }

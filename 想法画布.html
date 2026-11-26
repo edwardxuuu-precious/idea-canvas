@@ -82,6 +82,7 @@ svg { display: block; }
   }
 }
 
+
 /* Floating Top Islands */
 .bar {
   position: fixed; top: var(--chrome-top); left: 16px; right: 16px; z-index: 10;
@@ -229,6 +230,7 @@ svg { display: block; }
 .edge-label { font-size: 11.5px; font-weight: 550; fill: var(--ink-soft); pointer-events: none; }
 .edge-label-bg { fill: var(--paper); stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
 .edge-preview { stroke: var(--board-accent, #0f766e); stroke-width: 1.8; stroke-dasharray: 6 5; fill: none; vector-effect: non-scaling-stroke; marker-end: url(#arrow-selected); }
+
 
 /* Refined Card Design System */
 .card[data-tone="topic"] {
@@ -387,6 +389,7 @@ svg { display: block; }
 #viewport:not(.is-hand):not(.is-link) .card:focus-within .card-port { opacity: 1; pointer-events: auto; }
 #viewport.is-zoomed-out .card :is(.card-port,.card-size) { opacity: 0; pointer-events: none; }
 .marquee { position: absolute; pointer-events: none; border: 1.5px solid var(--board-accent, var(--green)); background: color-mix(in srgb, var(--board-accent, var(--green)) 12%, transparent); border-radius: 6px; }
+
 
 /* Bottom Centered Floating Dock (replaces old left rail) */
 .rail, .panel, .float-controls, .selection-tools, .tip {
@@ -570,6 +573,7 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.42); backdrop-filter: blur(4px
 .sync-alert .btn { height: 28px; padding-inline: 9px; }
 :root[data-chrome="dark"] .sync-alert { background: #2b2112; border-color: rgba(245, 158, 11, 0.35); color: #fcd34d; }
 
+
 /* Unified Right Floating Drawers (Layout, Inspector, Views/Outline) */
 .feature-drawer, .inspector-panel, .canvas-views {
   position: fixed; z-index: 9; top: calc(var(--chrome-top) + 52px); right: 16px; bottom: auto;
@@ -741,7 +745,7 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.42); backdrop-filter: blur(4px
   display: grid; place-items: center; font-size: 11px; background: var(--glass); color: var(--muted);
   opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease;
 }
-.inspector-theme-card:hover .inspector-theme-del, .inspector-theme-del:focus-visible { opacity: 1; }
+.inspector-theme-wrap:hover .inspector-theme-del, .inspector-theme-del:hover, .inspector-theme-del:focus-visible { opacity: 1; }
 .inspector-theme-del:hover { background: #dc2626; color: #fff; }
 .inspector-tone-pills { display: flex; flex-wrap: wrap; gap: 5px; }
 .inspector-tone-pill {
@@ -944,7 +948,7 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
   background: var(--board-accent, var(--green)); border-color: var(--board-accent, var(--green)); color: #fff;
 }
 .card-fold[aria-expanded="false"]:hover { filter: brightness(0.92); background: var(--board-accent, var(--green)); color: #fff; }
-#viewport.is-hand :is(.card-fold,button.card-chip), #viewport.is-link :is(.card-fold,button.card-chip) { pointer-events: none; }
+#viewport.is-hand :is(.card-fold,button.card-chip,.check-box,a[href],.card-cover img,.card-body img), #viewport.is-link :is(.card-fold,button.card-chip,.check-box,a[href],.card-cover img,.card-body img) { pointer-events: none; }
 .stage:has(:is(#layout-panel,#inspector-panel,#views-panel):not([hidden])) #idle-tip { display: none; }
 .stage:has(:is(#inspector-panel,#views-panel,#layout-panel):not([hidden])) #map-panel { display: none; }
 
@@ -969,6 +973,7 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
   #idle-tip { display: none !important; }
   .feature-drawer, .inspector-panel, .canvas-views { top: calc(var(--chrome-top) + 42px); right: 10px; width: calc(100vw - 20px); max-height: calc(100dvh - var(--chrome-top) - 116px); }
 }
+
 
 /* === Checklist, Inline Editing, Breadcrumbs, Context Menu & Lightbox === */
 .checklist-item { display: flex; align-items: flex-start; gap: 8px; list-style: none; margin: 4px 0; }
@@ -1208,6 +1213,7 @@ a.source-popover-link:hover .source-popover-label { color: var(--board-accent, v
 .lightbox-bar .icon-btn:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
 .lightbox-stage { max-width: 88vw; max-height: 82dvh; overflow: auto; display: grid; place-items: center; }
 #image-lightbox img { display: block; max-width: 88vw; max-height: 82dvh; object-fit: contain; border-radius: 8px; transform-origin: center center; }
+
 </style>
 </head>
 <body>
@@ -1708,8 +1714,21 @@ const imageData = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$
 
 const utf8Encoder = new TextEncoder();
 
+function sanitizeUnicode(value) {
+  const text = typeof value === 'string' ? value : String(value ?? '');
+  if (!text) return '';
+  if (typeof text.toWellFormed === 'function') return text.toWellFormed();
+  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD');
+}
+
+function sliceChars(value, maxChars) {
+  const clean = sanitizeUnicode(value);
+  const chars = [...clean];
+  return chars.length > maxChars ? chars.slice(0, maxChars).join('') : clean;
+}
+
 function utf8Slice(value, maxBytes) {
-  const text = typeof value === 'string' ? value : String(value || '');
+  const text = sanitizeUnicode(value);
   if (!text || utf8Encoder.encode(text).length <= maxBytes) return text;
   let bytes = 0;
   let out = '';
@@ -1761,7 +1780,7 @@ function richFragment(html) {
         const src = node.getAttribute('src');
         if (src && src.length <= imageDataLimit && imageData.test(src)) {
           const image = document.createElement('img');
-          image.alt = (node.getAttribute('alt') || '卡片图片').slice(0, 140);
+          image.alt = sliceChars(node.getAttribute('alt') || '卡片图片', 140);
           image.src = src;
           output.append(image);
         }
@@ -1806,6 +1825,28 @@ function richFragment(html) {
   return result;
 }
 
+function stripLeadingChars(root, count) {
+  let remaining = count;
+  function walk(node) {
+    if (remaining <= 0) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (node.textContent.length <= remaining) {
+        remaining -= node.textContent.length;
+        node.textContent = '';
+      } else {
+        node.textContent = node.textContent.slice(remaining);
+        remaining = 0;
+      }
+      return;
+    }
+    for (const child of [...node.childNodes]) {
+      walk(child);
+      if (remaining <= 0) break;
+    }
+  }
+  walk(root);
+}
+
 function normalizeChecklistBlocks(root) {
   let activeList = null;
   for (const child of [...root.childNodes]) {
@@ -1844,7 +1885,9 @@ function normalizeChecklistBlocks(root) {
         }
         const li = document.createElement('li');
         li.setAttribute('data-done', m[2] === ' ' ? 'false' : 'true');
-        li.innerHTML = child.innerHTML.replace(/^\s*(?:[-*]\s*)?\[[ xX✓]\]\s+/, '');
+        const prefixLen = raw.match(/^\s*(?:[-*]\s*)?\[[ xX✓]\]\s+/)?.[0].length || 0;
+        if (prefixLen > 0) stripLeadingChars(child, prefixLen);
+        while (child.firstChild) li.append(child.firstChild);
         activeList.append(li);
         child.remove();
         continue;
@@ -1968,6 +2011,7 @@ function plainFragment(text) {
   return fragment;
 }
 
+
 const CanvasData = (() => {
   const tone = {
     topic: { label: '主题' },
@@ -2017,7 +2061,7 @@ const CanvasData = (() => {
   ];
   const isColor = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
   const listed = (value, choices, fallback) => choices.includes(value) ? value : fallback;
-  const asText = (value, limit) => typeof value === 'string' ? [...value.trim()].slice(0, limit).join('') : '';
+  const asText = (value, limit) => typeof value === 'string' ? sliceChars(value.trim(), limit) : '';
 
   function newAppearance() {
     return { background: '#f5f6f8', grid: 'dots', gridColor: '#94a3b8', gridSize: 24, accent: '#0f766e',
@@ -2165,11 +2209,11 @@ const CanvasData = (() => {
       requireValue(isCoordinate(x) && isCoordinate(y) && within(w, 64, sizeLimit) && within(h, 36, sizeLimit), '卡片位置或尺寸无效。');
       requireValue(typeof nodeTone === 'string' && Object.hasOwn(tone, nodeTone) && typeof title === 'string' && typeof body === 'string', '卡片类型或文字内容无效。');
       nodeIds.add(id);
-      const result = { id, x, y, w, h, tone: nodeTone, title, body };
+      const result = { id, x, y, w, h, tone: nodeTone, title: sanitizeUnicode(title), body: sanitizeUnicode(body) };
       if (richBody !== undefined && richBody !== null) {
         requireValue(typeof richBody === 'string', '卡片富文本内容无效。');
-        const clean = richContent(richBody);
-        if (clean.html) Object.assign(result, { body: clean.text, richBody: clean.html });
+        const clean = richContent(sanitizeUnicode(richBody));
+        if (clean.html) Object.assign(result, { body: sanitizeUnicode(clean.text), richBody: sanitizeUnicode(clean.html) });
       }
       if (typeof node.note === 'string' && node.note.trim()) result.note = utf8Slice(node.note.trim(), 16_000);
       const sources = parseSources(node.sources);
@@ -2195,9 +2239,9 @@ const CanvasData = (() => {
       requireValue(!pairs.has(pair), '同两张卡片的连线重复。');
       edgeIds.add(id);
       pairs.add(pair);
-      return { id, from, to, label, kind, ...(edge.style ? { style: styles(edge.style, 'line') } : {}) };
+      return { id, from, to, label: sanitizeUnicode(label), kind, ...(edge.style ? { style: styles(edge.style, 'line') } : {}) };
     });
-    return { id: value.id, name: value.name, nodes, edges, view: parseView(value.view),
+    return { id: value.id, name: sanitizeUnicode(value.name), nodes, edges, view: parseView(value.view),
       settings: settings(value.settings, nodes) };
   }
 
@@ -2256,6 +2300,7 @@ const CanvasData = (() => {
 
   return { tone, uid, makeBoard, newAppearance, newSettings, parse, storage, exportHtml };
 })();
+
 const sourceHtml = '<!doctype html>\n' + document.documentElement.outerHTML.replace('<meta id="canvas-browser-sync">', '<!-- LOCAL_CANVAS_SYNC -->');
 const $ = selector => document.querySelector(selector);
 const controls = Object.fromEntries([...document.querySelectorAll('[data-action]')].map(el => [el.dataset.action, el]));
@@ -2675,10 +2720,7 @@ function adoptShared(snapshot) {
     }
   }
   if (changedAny) {
-    for (const stack of history.values()) {
-      stack.past = stack.past.filter(entry => !entry.workspaceBoards);
-      stack.future = stack.future.filter(entry => !entry.workspaceBoards);
-    }
+    invalidateCrossBoardUndo(null, true);
   }
   const sameBoard = received.boards.some(item => item.id === activeId);
   const before = sameBoard ? capturePositions() : null;
@@ -2839,7 +2881,20 @@ function snapshot(withView = false, withThemes = false, withWorkspace = false) {
     ...(withThemes ? { themes: workspace.themes } : {}) });
 }
 
+function invalidateCrossBoardUndo(exceptBoardId = null, clearThemes = false) {
+  for (const [id, stack] of history) {
+    if (id === exceptBoardId) continue;
+    stack.past = stack.past.filter(entry => !entry.workspaceBoards);
+    stack.future = stack.future.filter(entry => !entry.workspaceBoards);
+    if (clearThemes) {
+      for (const entry of stack.past) delete entry.themes;
+      for (const entry of stack.future) delete entry.themes;
+    }
+  }
+}
+
 function checkpoint(withView = false, withThemes = false, withWorkspace = false) {
+  invalidateCrossBoardUndo(withWorkspace ? null : workspace.activeId, withThemes);
   const { past, future } = selectedBoardHistory();
   past.push(snapshot(withView, withThemes, withWorkspace));
   if (past.length > 60) past.shift();
@@ -3097,6 +3152,7 @@ function fitNodes(ids, temporary = false, anchorId = null, { instant = false } =
     animateCamera({ x, y, scale }, { duration: 260, temporary });
   }
 }
+
 
 const CanvasLayout = (() => {
   const isTreeMode = mode => mode === 'right' || mode === 'double' || mode === 'down';
@@ -3809,10 +3865,10 @@ function effectiveNodes(positions = layoutDraft?.result?.positions) {
 }
 
 function layoutSelectionIds() {
-  const { scope, selected, options } = layoutDraft;
+  const { scope, selected } = layoutDraft;
   const ids = scope === 'branch' ? CanvasLayout.subtree(hierarchy, selected[0])
     : scope === 'selection' ? selected : hierarchy.order;
-  const hidden = CanvasLayout.isTreeMode(options.mode) ? CanvasLayout.foldedDescendants(hierarchy, board().settings.folded) : null;
+  const hidden = board().settings.folded.length ? CanvasLayout.foldedDescendants(hierarchy, board().settings.folded) : null;
   return new Set(hidden ? ids.filter(id => !hidden.has(id)) : ids);
 }
 
@@ -3848,7 +3904,7 @@ function syncLayoutFields() {
 function calculateLayout(ids, options, scope, draftNodes = board().nodes) {
   if (options.rows === options.columns) options.columns = options.rows === 'tone' ? 'status' : 'tone';
   const tree = CanvasLayout.isTreeMode(options.mode) ? hierarchy : null;
-  const hidden = tree ? CanvasLayout.foldedDescendants(tree, board().settings.folded) : null;
+  const hidden = board().settings.folded.length ? CanvasLayout.foldedDescendants(hierarchy, board().settings.folded) : null;
   const rects = (hidden ? draftNodes.filter(node => !hidden.has(node.id)) : draftNodes).map(cardRect);
   const nodes = rects.filter(node => ids.has(node.id));
   if (!nodes.length) return null;
@@ -4041,7 +4097,7 @@ function applyLayout(ids, { scope, options, result, edits, anchorId }, targetCam
   const tree = CanvasLayout.isTreeMode(options.mode);
   const anchor = tree ? anchorId || layoutAnchor(result.positions, noteIds()) : null;
   const nextLayout = scope === 'board' ? options : settings.layout;
-  const nextGuides = scope === 'board' || result.guides.length ? result.guides : settings.guides;
+  const nextGuides = scope === 'board' ? result.guides : settings.guides;
   const moved = current.nodes.filter(node => {
     const position = result.positions.get(node.id);
     return position && (position.x !== node.x || position.y !== node.y);
@@ -4248,6 +4304,7 @@ function alignmentSnap(active, dx, dy) {
 function paintSnapLines(lines = []) {
   $('#alignment-layer').replaceChildren(...lines.map(line => svg('line', { ...line, class: 'snap-guide' })));
 }
+
 
 const CanvasInspector = (() => {
   const color = /^#[0-9a-f]{6}$/i;
@@ -4489,7 +4546,7 @@ const CanvasInspector = (() => {
   }
 
   function themeCard(theme, isCustom, currentAppearance) {
-    const wrap = el('div');
+    const wrap = el('div', 'inspector-theme-wrap');
     wrap.style.position = 'relative';
     const cardBtn = el('button', 'inspector-theme-card');
     cardBtn.type = 'button';
@@ -5029,7 +5086,10 @@ const CanvasInspector = (() => {
       if (event.target.closest('[data-inspector-close]')) close();
     });
     panel.addEventListener('keydown', event => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') return;
+      const mod = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      if (mod && key === 'k') return;
+      if (mod && ['z', 'y', 's'].includes(key) && !event.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
       event.stopPropagation();
       if (event.key === 'Escape') {
         close();
@@ -5050,6 +5110,7 @@ const CanvasInspector = (() => {
 
   return { mount, refresh, open, close, toggle };
 })();
+
 
 function foldLabel(node, expanded, count) {
   const action = expanded ? '收起分支' : `展开下一层（${count} 项）`;
@@ -5235,7 +5296,7 @@ const CanvasViews = (() => {
           if (!p) continue;
           anchored.set(node.id, node.pinned ? { x: node.x, y: node.y } : { x: coordinate(p.x + dx), y: coordinate(p.y + dy) });
         }
-        const finalPositions = externalObstacles.length
+        const finalPositions = externalObstacles.length || componentNodes.some(node => node.pinned)
           ? CanvasLayout.avoidFixed(anchored, componentNodes, Math.min(layout.nodeGap, 12), externalObstacles, layout.mode === 'down')
           : anchored;
         moved = applyBranchPositions(byId, finalPositions);
@@ -5523,7 +5584,13 @@ const CanvasViews = (() => {
     const other = index + delta;
     if (index < 0 || other < 0 || other >= order.length) return;
     [order[index], order[other]] = [order[other], order[index]];
-    commitOrder(order);
+    const current = board();
+    const before = capturePositions();
+    applyChange(() => {
+      order.forEach((itemId, idx) => { const node = nodeBy(itemId); if (node) node.order = idx; });
+      if (CanvasLayout.isTreeMode(current.settings.layout.mode)) relayoutAround(current, [id]);
+    });
+    animatePositions(before);
   }
 
   function clearDrag() {
@@ -5742,7 +5809,7 @@ const CanvasViews = (() => {
   function paddedBounds(members) {
     const box = boundsOf(members);
     if (!box) return null;
-    return { x: box.left - 18, y: box.top - 45, w: box.w + 36, h: box.h + 64 };
+    return { x: box.left - 18, y: box.top - 45, w: Math.max(120, box.w + 36), h: Math.max(90, box.h + 64) };
   }
 
   function unionBox(a, b) {
@@ -5869,7 +5936,7 @@ const CanvasViews = (() => {
         const isInside = insideIds.has(frame.id);
         if (!wasMember && isInside) {
           frame.members.push(node.id);
-          frame.box = unionBox(frame.box || frameBoxes.get(frame.id), { x: rect.x - 18, y: rect.y - 45, w: rect.w + 36, h: rect.h + 64 });
+          frame.box = unionBox(frame.box || frameBoxes.get(frame.id), { x: rect.x - 18, y: rect.y - 45, w: Math.max(120, rect.w + 36), h: Math.max(90, rect.h + 64) });
           changes.push(`已加入「${frame.name}」`);
         } else if (wasMember && !isInside) {
           if (!frame.box) {
@@ -5968,8 +6035,9 @@ const CanvasViews = (() => {
         return position ? { ...node, ...position } : node;
       });
       const memberBox = paddedBounds(members);
-      const baseBox = frameOverride?.id === frame.id ? frameOverride.box : frame.box;
-      const box = unionBox(baseBox || null, frameOverride?.id === frame.id ? null : memberBox);
+      const isOverride = frameOverride?.id === frame.id;
+      const baseBox = isOverride ? frameOverride.box : frame.box;
+      const box = unionBox(baseBox || null, isOverride && frameOverride.resize ? null : memberBox);
       const allHidden = frame.members.length > 0 && !frame.box && members.length === 0;
       element.hidden = !box || allHidden;
       if (!box) continue;
@@ -6067,6 +6135,7 @@ const CanvasViews = (() => {
     },
   };
 })();
+
 
 function showBoardView() {
   cancelCameraAnimation();
@@ -6519,6 +6588,23 @@ function renderPlainCardBody(container, text) {
   container.replaceChildren(fragment);
 }
 
+function linkifyRichElement(container) {
+  const skipTags = new Set(['A', 'CODE', 'PRE', 'BUTTON', 'SCRIPT', 'STYLE']);
+  function walk(node) {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        if (!/https?:\/\//i.test(child.textContent)) continue;
+        const frag = document.createDocumentFragment();
+        appendLinkedText(frag, child.textContent);
+        child.replaceWith(frag);
+      } else if (child.nodeType === Node.ELEMENT_NODE && !skipTags.has(child.tagName)) {
+        walk(child);
+      }
+    }
+  }
+  walk(container);
+}
+
 function decorateRichChecklists(container) {
   let checkIndex = 0;
   for (const li of container.querySelectorAll('li[data-done]')) {
@@ -6684,6 +6770,7 @@ function renderCards(nodes = board().nodes) {
         if (images.length) view.cover.append(images[0]);
         view.body.replaceChildren(fragment);
         decorateRichChecklists(view.body);
+        linkifyRichElement(view.body);
       } else if (node.body.trim()) {
         renderPlainCardBody(view.body, node.body);
       } else {
@@ -7212,6 +7299,7 @@ function paintMap() {
   ctx.globalAlpha = 1;
 }
 
+
 function freePosition(x, y, width, height) {
   const nodes = board().nodes;
   const rectangles = nodes.map(node => cardRect(node));
@@ -7562,7 +7650,7 @@ async function addPictures(files) {
         }
         const image = document.createElement('img');
         image.src = data;
-        image.alt = (file.name || '卡片图片').slice(0, 140);
+        image.alt = sliceChars(file.name || '卡片图片', 140);
         images.append(image);
         length += data.length + 200;
       } catch (error) {
@@ -7629,8 +7717,26 @@ function maybeConvertChecklistShortcut(container, editCallback) {
     item.setAttribute('data-done', match[1] && match[1] !== ' ' ? 'true' : 'false');
     item.append(rest || document.createElement('br'));
     ul.append(item);
-    if (block && block.parentElement === container) block.replaceWith(ul);
-    else node.replaceWith(ul);
+    const hasPreceding = block && (() => {
+      for (let prev = node.previousSibling; prev; prev = prev.previousSibling) {
+        if (prev.nodeType === Node.TEXT_NODE && prev.textContent.trim()) return true;
+        if (prev.nodeType === Node.ELEMENT_NODE && prev.tagName !== 'BR') return true;
+      }
+      return false;
+    })();
+    if (block && block.parentElement === container && !hasPreceding && !node.nextSibling) {
+      block.replaceWith(ul);
+    } else if (block && block.parentElement === container && hasPreceding) {
+      const prevBr = node.previousSibling?.nodeName === 'BR' ? node.previousSibling : null;
+      const tail = [];
+      for (let sib = node.nextSibling; sib; sib = sib.nextSibling) tail.push(sib);
+      node.remove();
+      if (prevBr) prevBr.remove();
+      for (const sib of tail) item.append(sib);
+      block.after(ul);
+    } else {
+      node.replaceWith(ul);
+    }
     const newRange = document.createRange();
     newRange.setStart(item, 0);
     newRange.collapse(true);
@@ -7675,7 +7781,7 @@ function repairSplitChecklist(container, inputEvent) {
   if (!block || block.parentElement !== container || block.hasAttribute('data-exit-check')) return;
   const prev = block.previousElementSibling;
   if (prev?.nodeName !== 'UL' || !prev.lastElementChild?.matches?.('li[data-done]')) return;
-  if (inputEvent?.inputType !== 'insertParagraph' && block.textContent.trim() !== '') return;
+  if (inputEvent?.inputType !== 'insertParagraph') return;
   const nextLi = document.createElement('li');
   nextLi.setAttribute('data-done', 'false');
   while (block.firstChild) nextLi.append(block.firstChild);
@@ -7709,7 +7815,7 @@ function handleChecklistEnter(event, container, editCallback) {
       nextLi.setAttribute('data-done', 'false');
       nextLi.append(document.createElement('br'));
       ul.append(li, nextLi);
-      if (block && block.parentElement === container) block.replaceWith(ul);
+      if (block && block.parentElement === container && !anchor.previousSibling && !anchor.nextSibling) block.replaceWith(ul);
       else anchor.replaceWith(ul);
       const nextRange = document.createRange();
       nextRange.setStart(nextLi, 0);
@@ -7723,15 +7829,25 @@ function handleChecklistEnter(event, container, editCallback) {
   if (!li || !container.contains(li)) return false;
   event.preventDefault();
   event.stopImmediatePropagation?.();
-  const text = li.textContent.trim();
-  if (!text) {
+  const isEmpty = !li.textContent.trim() && !li.querySelector('img');
+  if (isEmpty) {
     const ul = li.parentElement;
     const div = document.createElement('div');
     div.dataset.exitCheck = '1';
     div.append(document.createElement('br'));
+    const trailing = [];
+    for (let sib = li.nextElementSibling; sib; sib = sib.nextElementSibling) trailing.push(sib);
     li.remove();
-    if (!ul.children.length) ul.replaceWith(div);
-    else ul.after(div);
+    if (!ul.children.length) {
+      ul.replaceWith(div);
+    } else if (trailing.length) {
+      const restUl = document.createElement('ul');
+      for (const item of trailing) restUl.append(item);
+      if (!ul.children.length) ul.replaceWith(div, restUl);
+      else ul.after(div, restUl);
+    } else {
+      ul.after(div);
+    }
     const nextRange = document.createRange();
     nextRange.setStart(div, 0);
     nextRange.collapse(true);
@@ -7740,9 +7856,19 @@ function handleChecklistEnter(event, container, editCallback) {
     editCallback();
     return true;
   }
+  const range = sel.getRangeAt(0);
   const nextLi = document.createElement('li');
   nextLi.setAttribute('data-done', 'false');
-  nextLi.append(document.createElement('br'));
+  if (li.contains(range.endContainer)) {
+    if (!range.collapsed) range.deleteContents();
+    const tailRange = document.createRange();
+    tailRange.setStart(range.endContainer, range.endOffset);
+    tailRange.setEnd(li, li.childNodes.length);
+    const tailFrag = tailRange.extractContents();
+    if (tailFrag.textContent.length || tailFrag.querySelector?.('img')) nextLi.append(tailFrag);
+  }
+  if (!li.textContent.length && !li.querySelector('img')) li.append(document.createElement('br'));
+  if (!nextLi.firstChild) nextLi.append(document.createElement('br'));
   li.after(nextLi);
   const nextRange = document.createRange();
   nextRange.setStart(nextLi, 0);
@@ -8224,6 +8350,7 @@ function commitText() {
   if (kind === 'board-new') {
     const next = CanvasData.makeBoard(text);
     workspace.boards.push(next);
+    invalidateCrossBoardUndo();
     switchBoard(next.id);
     return;
   }
@@ -8256,10 +8383,7 @@ function deleteBoard() {
     }
   }
   history.delete(deletedId);
-  for (const stack of history.values()) {
-    stack.past = stack.past.filter(entry => !entry.workspaceBoards);
-    stack.future = stack.future.filter(entry => !entry.workspaceBoards);
-  }
+  invalidateCrossBoardUndo();
   switchBoard(workspace.boards[Math.min(index, workspace.boards.length - 1)].id);
   toast('已删除画布');
 }
@@ -8564,6 +8688,7 @@ function goToMatch(index) {
   CanvasViews.revealFromOutline(entry.node.id);
   focusCanvas();
 }
+
 
 const exportMime = {
   html: 'text/html;charset=utf-8', json: 'application/json;charset=utf-8', md: 'text/markdown;charset=utf-8',
@@ -9159,6 +9284,7 @@ const CanvasExport = (() => {
   return { scene, toSVG, toPNG };
 })();
 
+
 function mergeThemes(incoming) {
   const byId = new Map(workspace.themes.map(item => [item.id, item]));
   for (const theme of incoming) {
@@ -9392,6 +9518,7 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const statusMap = new Map(current.settings.statuses.map(s => [s.id, s]));
   const tagMap = new Map(current.settings.tags.map(t => [t.id, t]));
   const linkedSubBoards = new Set(workspace.boards.flatMap(b => b.nodes.map(n => n.subBoardId).filter(Boolean)));
+  const existingBoards = new Map(workspace.boards.map(b => [b.id, b]));
   const box = boundsOf(payload.nodes);
   const centerX = box ? (box.left + box.right) / 2 : 0;
   const centerY = box ? (box.top + box.bottom) / 2 : 0;
@@ -9406,7 +9533,13 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const inserted = payload.nodes.map(n => {
     const copy = structuredClone(n);
     copy.id = idMap.get(n.id);
-    if (copy.subBoardId === current.id || linkedSubBoards.has(copy.subBoardId)) delete copy.subBoardId;
+    if (copy.subBoardId) {
+      if (!existingBoards.has(copy.subBoardId) || copy.subBoardId === current.id || linkedSubBoards.has(copy.subBoardId)) {
+        delete copy.subBoardId;
+      } else {
+        existingBoards.get(copy.subBoardId).settings.parentId = current.id;
+      }
+    }
     copy.x = coordinate(anchorWorld.x + (n.x - centerX));
     copy.y = coordinate(anchorWorld.y + (n.y - centerY));
     return copy;
@@ -9432,8 +9565,10 @@ async function handleCanvasPaste(clipboardData) {
     try {
       const data = await pictureData(files[0]);
       if (!canAddPictureBytes(data.length + 200)) return toast('画布图片存储空间已满', 'error');
-      const html = `<img src="${data}" alt="${node.title}">`;
-      const clean = richContent(html);
+      const img = document.createElement('img');
+      img.src = data;
+      img.alt = sliceChars(node.title, 140);
+      const clean = richContent(img.outerHTML);
       node.body = clean.text;
       node.richBody = clean.html;
       applyChange(() => {
@@ -9487,9 +9622,9 @@ async function handleCanvasPaste(clipboardData) {
     node.title = new URL(safeUrl).hostname.replace(/^www\./, '');
     node.body = safeUrl;
   } else {
-    const lines = text.trim().split(/\r?\n/);
-    node.title = lines[0].slice(0, 80);
-    node.body = lines.length > 1 ? lines.slice(1).join('\n') : (lines[0].length > 80 ? lines[0] : '');
+    const lines = sanitizeUnicode(text.trim()).split(/\r?\n/);
+    node.title = sliceChars(lines[0], 80);
+    node.body = lines.length > 1 ? lines.slice(1).join('\n') : ([...lines[0]].length > 80 ? lines[0] : '');
   }
   applyChange(() => {
     board().nodes.push(node);
@@ -9649,12 +9784,14 @@ async function importFile(file) {
       }
       workspace.boards.push(item);
     }
+    invalidateCrossBoardUndo(null, incoming.themes?.length > 0);
     switchBoard(idMap.get(incoming.activeId) || incoming.boards[0].id);
     toast('已导入 ' + incoming.boards.length + ' 张画布');
   } catch (error) {
     toast('导入失败。' + error.message, 'error');
   }
 }
+
 
 function cardUnder(event) {
   return document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-card]')?.dataset.card || null;
@@ -9666,8 +9803,9 @@ function beginPointer(event) {
     if (inlineEdit.element.contains(event.target)) return;
     finishInline({ keepFocus: true });
   }
+  const pan = spaceHeld || mode === 'hand' || event.button === 1;
   if (event.button > 2 || modalOpen() || layoutDraft ||
-      event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-subboard],a[href],.canvas-frame-input')) return;
+      (!pan && mode !== 'link' && event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-subboard],a[href],.canvas-frame-input'))) return;
   const here = point(event);
   lastPointerLocal = here;
   if (event.pointerType === 'touch') {
@@ -9693,7 +9831,6 @@ function beginPointer(event) {
   const handleEl = event.target.closest('[data-handle]');
   const handle = handleEl?.dataset.handle;
   const base = { pointerId: event.pointerId, start: here, moved: false };
-  const pan = spaceHeld || mode === 'hand' || event.button === 1;
   if (pan) {
     cancelCameraAnimation();
     panVelocity = { vx: 0, vy: 0, t: performance.now(), x: here.x, y: here.y };
@@ -9722,9 +9859,10 @@ function beginPointer(event) {
     CanvasInspector.close();
     const frame = CanvasViews.selectFrame(frameId);
     if (!frame) return;
+    const fullBox = CanvasViews.frameRect(frame);
     gesture = {
       ...base, kind: 'drag', keepGroup: true, frame: frameId,
-      startBox: frame.box ? { ...frame.box } : null,
+      startBox: fullBox ? { ...fullBox } : (frame.box ? { ...frame.box } : null),
       nodes: new Map(frame.members.map(id => [id, nodeBy(id)]).filter(([, node]) => !!node)),
     };
     event.preventDefault();
@@ -9771,9 +9909,13 @@ function beginPointer(event) {
   }
   const prior = event.shiftKey ? new Set(noteIds()) : new Set();
   setSelected(prior);
-  gesture = event.pointerType === 'touch'
-    ? { ...base, kind: 'pan', camera: { ...camera }, blank: true }
-    : { ...base, kind: 'marquee', prior };
+  if (event.pointerType === 'touch') {
+    cancelCameraAnimation();
+    panVelocity = { vx: 0, vy: 0, t: performance.now(), x: here.x, y: here.y };
+    gesture = { ...base, kind: 'pan', camera: { ...camera }, blank: true };
+  } else {
+    gesture = { ...base, kind: 'marquee', prior };
+  }
   event.preventDefault();
 }
 
@@ -9942,7 +10084,7 @@ function movePointer(event) {
       w: clamp(active.startBox.w + dx / camera.scale, 160, 1e6),
       h: clamp(active.startBox.h + dy / camera.scale, 110, 1e6),
     };
-    CanvasViews.renderFrames(null, visibility.hidden, { id: active.frameId, box: active.nextBox });
+    CanvasViews.renderFrames(null, visibility.hidden, { id: active.frameId, box: active.nextBox, resize: true });
   } else if (active.kind === 'drag' || active.kind === 'resize') {
     let worldDx = dx / camera.scale;
     let worldDy = dy / camera.scale;
@@ -10268,6 +10410,7 @@ const action = {
     const pinned = nodes.some(node => !node.pinned);
     applyChange(() => { for (const node of nodes) node.pinned = pinned; });
     toast(pinned ? '已固定所选节点的整理位置' : '已解除位置固定');
+    focusCanvas();
   },
   'focus-branch': () => CanvasViews.focus(),
   'frame-add': () => { CanvasInspector.close(); CanvasViews.addFrame(); },
@@ -10545,6 +10688,7 @@ viewport.addEventListener('focusin', event => {
 });
 viewport.addEventListener('click', event => {
   if (inlineEdit && inlineEdit.element.contains(event.target)) return;
+  if (mode !== 'select' || spaceHeld) return;
   const checkBtn = event.target.closest('[data-card-check]');
   if (checkBtn && !layoutDraft) {
     const id = checkBtn.closest('[data-card]')?.dataset.card;
@@ -10650,6 +10794,9 @@ for (const type of ['pointerup', 'pointercancel']) {
   minimap.addEventListener(type, event => { if (mapDrag?.id === event.pointerId) mapDrag = null; });
 }
 
+const isTextInputEl = el => !!el?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+const hasSelectedText = () => !!window.getSelection()?.toString();
+
 document.addEventListener('keydown', event => {
   if (event.isComposing || event.keyCode === 229) return;
   const key = event.key.toLowerCase();
@@ -10663,6 +10810,8 @@ document.addEventListener('keydown', event => {
   }
   if (mod && key === 'k') {
     event.preventDefault();
+    closeContextMenu();
+    closeSelectionSubPopovers();
     if (inlineEdit) finishInline({ keepFocus: true });
     togglePopover('search', true);
     return;
@@ -10683,16 +10832,14 @@ document.addEventListener('keydown', event => {
   }
   if (openPopover && key === 'escape') {
     event.preventDefault();
-    const toggle = popovers[openPopover].toggle;
     closePopover();
-    toggle.focus();
+    focusCanvas();
     return;
   }
   if (openSelectionSubPopover && key === 'escape') {
     event.preventDefault();
-    const toggle = selectionSubPopovers[openSelectionSubPopover].toggle;
     closeSelectionSubPopovers();
-    toggle?.focus();
+    focusCanvas();
     return;
   }
   if (key === 'escape' && gesture?.matrix) {
@@ -10706,7 +10853,7 @@ document.addEventListener('keydown', event => {
     focusCanvas();
     return;
   }
-  if (layoutDraft || event.target.closest('button:not([data-card-fold]), input, textarea, select, summary, [contenteditable], a')) return;
+  if (layoutDraft || isTextInputEl(event.target)) return;
   if (mod) {
     if (key === 'z') {
       event.preventDefault();
@@ -10722,21 +10869,22 @@ document.addEventListener('keydown', event => {
     } else if (key === 'c' && event.shiftKey && noteIds().length) {
       event.preventDefault();
       copySelectionAsMarkdown();
-    } else if (key === 'c' && noteIds().length) {
+    } else if (key === 'c' && noteIds().length && !hasSelectedText()) {
       event.preventDefault();
       lastKeyClip = { name: 'copy', at: performance.now() };
       copySelectionToClipboard(false);
-    } else if (key === 'x' && noteIds().length) {
+    } else if (key === 'x' && noteIds().length && !hasSelectedText()) {
       event.preventDefault();
       lastKeyClip = { name: 'cut', at: performance.now() };
       copySelectionToClipboard(true);
-    } else if (key === 'a' && (document.activeElement === viewport || document.activeElement === document.body)) {
+    } else if (key === 'a' && (document.activeElement === viewport || document.activeElement === document.body || !!document.activeElement?.closest?.('#viewport'))) {
       event.preventDefault();
       lastKeyClip = { name: 'select-all', at: performance.now() };
       setSelected(board().nodes.filter(node => !visibility.hidden.has(node.id)).map(node => node.id));
     }
     return;
   }
+  if (event.target.closest?.('button:not([data-card-fold]), summary, a')) return;
   if (event.key.startsWith('Arrow') && !event.target.closest('[data-card-fold]')) {
     event.preventDefault();
     if (event.altKey) nudge(event.key, event.shiftKey);
@@ -10857,6 +11005,7 @@ const quickToneButtons = Object.entries(CanvasData.tone).map(([id, { label }]) =
     const selectedNodes = noteIds().map(nodeBy).filter(Boolean);
     if (!selectedNodes.length) return;
     applyChange(() => { for (const n of selectedNodes) n.tone = id; });
+    focusCanvas();
   });
   return dot;
 });
@@ -10864,23 +11013,23 @@ $('#selection-tones').append(...quickToneButtons);
 
 document.addEventListener('copy', event => {
   if (modalOpen() || inlineEdit || layoutDraft) return;
-  if (event.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
-  if (window.getSelection()?.toString()) return;
+  if (isTextInputEl(event.target)) return;
+  if (hasSelectedText()) return;
   if (!noteIds().length) return;
   event.preventDefault();
   copySelectionToClipboard(false, event.clipboardData);
 });
 document.addEventListener('cut', event => {
   if (modalOpen() || inlineEdit || layoutDraft) return;
-  if (event.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
-  if (window.getSelection()?.toString()) return;
+  if (isTextInputEl(event.target)) return;
+  if (hasSelectedText()) return;
   if (!noteIds().length) return;
   event.preventDefault();
   copySelectionToClipboard(true, event.clipboardData);
 });
 document.addEventListener('paste', event => {
   if (modalOpen() || inlineEdit || layoutDraft) return;
-  if (event.target.closest('input, textarea, select, [contenteditable]')) return;
+  if (isTextInputEl(event.target)) return;
   event.preventDefault();
   void handleCanvasPaste(event.clipboardData);
 });
@@ -11009,21 +11158,25 @@ if (desktop) {
   $('#help-save-note').textContent = '桌面版和已连接的浏览器共用本机画布。收起窗口可以继续同步。用「文件」可复制同步链接、查看历史备份或导出 HTML。';
   const openingWorkspace = JSON.stringify(workspace);
   window.ideaCanvasCommand = name => {
+    const inEditable = isTextInputEl(document.activeElement);
     if (name === 'undo' || name === 'redo') {
-      if (document.activeElement?.closest?.('input, textarea, [contenteditable]:not([contenteditable="false"])')) return 'native';
-      if (!modalOpen() && performance.now() - lastKeyUndoAt > 400) undoRedo(name);
+      if (inEditable) return 'native';
+      if (modalOpen() || layoutDraft) return 'ignored';
+      if (performance.now() - lastKeyUndoAt > 400) undoRedo(name);
       return 'done';
     }
-    if (name === 'copy' || name === 'cut' || name === 'select-all') {
-      const inEditable = !!document.activeElement?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-      const hasTextSelection = name !== 'select-all' && !!window.getSelection()?.toString();
-      if (inEditable || modalOpen() || inlineEdit || layoutDraft || hasTextSelection) return 'native';
+    if (name === 'select-all') {
+      if (inEditable) return 'native';
+      if (modalOpen() || inlineEdit || layoutDraft) return 'ignored';
       if (lastKeyClip.name === name && performance.now() - lastKeyClip.at < 400) return 'done';
-      if (name === 'select-all') {
-        setSelected(board().nodes.filter(node => !visibility.hidden.has(node.id)).map(node => node.id));
-        focusCanvas();
-        return 'done';
-      }
+      setSelected(board().nodes.filter(node => !visibility.hidden.has(node.id)).map(node => node.id));
+      focusCanvas();
+      return 'done';
+    }
+    if (name === 'copy' || name === 'cut') {
+      if (inEditable || modalOpen() || inlineEdit || hasSelectedText()) return 'native';
+      if (layoutDraft) return 'ignored';
+      if (lastKeyClip.name === name && performance.now() - lastKeyClip.at < 400) return 'done';
       if (!noteIds().length) return 'ignored';
       copySelectionToClipboard(name === 'cut');
       return 'done';
@@ -11078,6 +11231,7 @@ if (syncing && !loadFailure) {
 } else if (!loadFailure) {
   save();
 }
+
 })();
 </script>
 </body>

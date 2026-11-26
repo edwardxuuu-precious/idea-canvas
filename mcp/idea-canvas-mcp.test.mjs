@@ -379,6 +379,100 @@ test('MCP httpCall waits for EOF on HTTP/1.1 responses without Content-Length or
   }
 });
 
+test('MCP enforces sibling order on orderless boards, 128-char IDs, exact boardName, backup guard, disabled switch, and RST truncation', async () => {
+  const cfg = makeTempEnv();
+  try {
+    // Seed a UI-style board with NO card.order fields + a prefix-colliding sub-board name
+    const seed = {
+      version: 3,
+      activeId: 'b1',
+      boards: [
+        {
+          id: 'b1',
+          name: '需求',
+          view: null,
+          nodes: [
+            { id: 'home', x: 0, y: 0, w: 220, h: 100, tone: 'topic', title: '总览', body: '' },
+            { id: 'a', x: 300, y: 0, w: 200, h: 80, tone: 'idea', title: 'A', body: '' },
+            { id: 'b', x: 300, y: 120, w: 200, h: 80, tone: 'idea', title: 'B', body: '' },
+            { id: 'c', x: 300, y: 240, w: 200, h: 80, tone: 'idea', title: 'C', body: '' },
+          ],
+          edges: [
+            { id: 'e1', from: 'home', to: 'a', label: '', kind: 'branch' },
+            { id: 'e2', from: 'home', to: 'b', label: '', kind: 'branch' },
+            { id: 'e3', from: 'home', to: 'c', label: '', kind: 'branch' },
+          ],
+          settings: { layout: { mode: 'right', nodeGap: 24, levelGap: 76, rootId: 'home', rows: 'status', columns: 'tone' }, guides: [], statuses: [], tags: [], folded: [], singleBranch: false, detail: 'full', frames: [] },
+        },
+        {
+          id: 'b2',
+          name: '需求 子画布',
+          view: null,
+          nodes: [{ id: 's1', x: 0, y: 0, w: 200, h: 80, tone: 'topic', title: '子卡', body: '' }],
+          edges: [],
+          settings: { parentId: 'b1', layout: { mode: 'right', nodeGap: 24, levelGap: 76, rootId: 's1', rows: 'status', columns: 'tone' }, guides: [], statuses: [], tags: [], folded: [], singleBranch: false, detail: 'full', frames: [] },
+        },
+      ],
+      themes: [],
+    };
+    fs.writeFileSync(path.join(cfg.dataDir, '画布数据.json'), JSON.stringify(seed));
+
+    // Exact boardName match ("需求") must resolve to b1 despite "需求 子画布"
+    const outline = await runTool('canvas_get_outline', { boardName: '需求' }, cfg);
+    expect(outline.boardId).toBe('b1');
+
+    // beforeSiblingId on orderless cards inserts between A and B: [a, d, b, c]
+    await runTool('canvas_upsert_cards', {
+      boardName: '需求',
+      cards: [{ id: 'd', parentId: 'home', beforeSiblingId: 'b', title: 'D' }],
+    }, cfg);
+    const afterInsert = await runTool('canvas_get_outline', { boardId: 'b1' }, cfg);
+    expect(afterInsert.outline[0].children.map((x) => x.id)).toEqual(['a', 'd', 'b', 'c']);
+
+    // 128-char card ID produces valid <=128-char branch edge ID
+    const longId = 'k'.repeat(128);
+    await runTool('canvas_upsert_cards', {
+      boardId: 'b1',
+      cards: [{ id: longId, parentId: 'home', title: 'Long ID Card' }],
+    }, cfg);
+    const diskAfterLong = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, '画布数据.json'), 'utf8'));
+    const longEdge = diskAfterLong.boards[0].edges.find((e) => e.to === longId);
+    expect(longEdge).toBeTruthy();
+    expect(longEdge.id.length).toBeLessThanOrEqual(128);
+
+    // local-api.disabled blocks save even with stale live stateContext
+    fs.writeFileSync(path.join(cfg.dataDir, 'local-api.disabled'), 'disabled\n');
+    await expect(
+      runTool('canvas_upsert_cards', { boardId: 'b1', cards: [{ id: 'z1', title: 'Blocked' }] }, cfg),
+    ).rejects.toThrow(/关闭接入/);
+    fs.rmSync(path.join(cfg.dataDir, 'local-api.disabled'));
+
+    // Missing main file while backup JSON exists refuses silent empty init
+    fs.rmSync(path.join(cfg.dataDir, '画布数据.json'));
+    await expect(runTool('canvas_create_board', { name: '新画布' }, cfg)).rejects.toThrow(/主数据文件缺失/);
+
+    // Truncated unframed response with TCP RST rejects instead of returning partial 200
+    const token = 'd'.repeat(64);
+    fs.writeFileSync(path.join(cfg.dataDir, 'local-api.key'), Buffer.from(token, 'hex'), { mode: 0o600 });
+    const rstSrv = net.createServer((sock) => {
+      sock.on('data', () => {
+        sock.write('HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{"ok":tr');
+        sock.resetAndDestroy?.() ?? sock.destroy();
+      });
+    });
+    await new Promise((resolve) => rstSrv.listen(0, '127.0.0.1', resolve));
+    try {
+      const status = await runTool('canvas_status', {}, { dataDir: cfg.dataDir, port: rstSrv.address().port }).catch((e) => e);
+      // Either failed due to missing main file after offline fallback, NEVER parsed truncated JSON as live
+      expect(status?.mode).not.toBe('live');
+    } finally {
+      rstSrv.close();
+    }
+  } finally {
+    fs.rmSync(cfg.dataDir, { recursive: true, force: true });
+  }
+});
+
 test('MCP stdio framing handles initialize and tools/list over real child process', async () => {
   const cfg = makeTempEnv();
   try {

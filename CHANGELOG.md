@@ -6,6 +6,34 @@
 
 ---
 
+## [2.1.4] (Build 17) - 2026-11-26
+
+一次性根治前后端深度审计发现的全部 17 项缺陷，并引入「JS / Swift / MCP 三端统一数据契约测试」「真实 Swift 回环服务协议测试」与「200 步随机状态压测」作为长期结构性防回归护栏。
+
+### 修复与加固清单（更新了什么 / 为什么更新 / 具体做了什么）
+
+1. **跨画布撤销安全与 Unicode 码点安全截断（[src/scripts/01-rich-text.js](src/scripts/01-rich-text.js)、[src/scripts/02-data.js](src/scripts/02-data.js)、[src/scripts/03-workspace-sync.js](src/scripts/03-workspace-sync.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)、[src/scripts/10-clipboard.js](src/scripts/10-clipboard.js)）**
+   - **为什么**：在画布 A 执行「提取为子画布」写入整库快照后，再到其他画布编辑或新建/导入画布，切回按 `⌘Z` 会静默覆盖整个 `workspace.boards`；按 UTF-16 码元 `.slice()` 截断长标题或图片 `alt` 会拆分 Emoji 留下孤立代理码点，导致 Swift `JSONDecoder` 拒收保存或下次无法启动。
+   - **做了什么**：新增 `invalidateCrossBoardUndo`，在跨画布编辑、新建、删除、导入及同步合并时自动清理过期的整库快照与他表主题快照；新增 `sanitizeUnicode` 与按 Unicode 码点切分的 `sliceChars`，统一收口剪贴板粘贴、图片 `alt` 及 `CanvasData.parse` 解析，彻底杜绝孤立代理码点。
+2. **统一快捷键与焦点路由、原生退出与弹窗 Sheet 防护（[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)、[src/scripts/05-inspector.js](src/scripts/05-inspector.js)、[macos/CanvasApp.swift](macos/CanvasApp.swift)）**
+   - **为什么**：焦点留在浮条按钮或属性面板时 `Delete`/`E`/`Tab`/`⌘S`/`⌘Z` 失效；`⌘K` 未关闭右键与子浮层；桌面版 `applicationShouldTerminate` 返回 `.terminateCancel` 会中断 macOS 重启/关机及 AppleScript 退出；布局预览与非输入弹窗中按 `⌘A` 会全选顶部栏文字污染后续复制，按 `⌘Z` 会误撤销历史；原生保存面板打开时菜单栏仍可在背后叠弹 sheet。
+   - **做了什么**：统一 `isTextInputEl` 与 `hasSelectedText` 状态判定，把修饰键命令提前至按钮过滤前执行并放行属性面板内 `⌘Z`/`⌘Y`/`⌘S`，快捷色点/固定按钮/浮层 `Esc` 后自动归还画布焦点，浏览器 `⌘C`/`⌘X` 不再窃取文本选区、`⌘A` 兼容聚焦卡片、`paste` 使用可选链防 Safari `Text` 节点报错；`CanvasApp.swift` 改用标准 `.terminateLater` + `sender.reply(toApplicationShouldTerminate:)` 并为所有原生 Sheet 命令加防叠加保护。
+3. **正文链接保真、待办清单编辑、主题删除按钮与布局/分区/模式细节修复（[src/scripts/04-layout.js](src/scripts/04-layout.js)、[src/scripts/05-inspector.js](src/scripts/05-inspector.js)、[src/styles/05-panels.css](src/styles/05-panels.css)、[src/scripts/06-views.js](src/scripts/06-views.js)、[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)、[src/scripts/10-clipboard.js](src/scripts/10-clipboard.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)）**
+   - 新增 `linkifyRichElement` 在渲染 `richBody` 时保留并自动识别文本中的 URL 链接；修复待办编辑中 `Shift+Enter` 删前一行、加粗开头重复前缀、普通空段落被吸回待办、空图待办按回车删图以及中间行回车分割问题。
+   - 为自定义主题容器补加 `.inspector-theme-wrap` 修复悬停删除按钮 `×` 透明不可见；矩阵/时间轴/鱼骨图统一过滤折叠隐藏节点且局部范围布局不再污染整表辅助线；连线/平移模式下屏蔽复选框、链接与图片灯箱误触并重置触控惯性速度；修复分区拖拽缩回与窄卡空分区下限（`120×90`）、剪切粘贴子画布入口 `parentId`/失效引用同步、大纲 `↑`/`↓` 树形重排、树形折叠避让内部固定卡，以及图片粘贴文件名 DOM 转义。
+4. **Swift 回环服务协议边界、MCP 契约对齐与打包脚本加固（[macos/DiskWorkspace.swift](macos/DiskWorkspace.swift)、[macos/CanvasLoopback.swift](macos/CanvasLoopback.swift)、[mcp/idea-canvas-mcp.mjs](mcp/idea-canvas-mcp.mjs)、[tools/bundle.sh](tools/bundle.sh)、[build.sh](build.sh)）**
+   - `DiskWorkspace.swift` 拆分 `CanvasValidationError` 使 `PUT /api/state` 校验与版本降级错误准确返回 `400 invalid_snapshot`；`CanvasLoopback.swift` 放行跨端口 UTF-8 Cookie 且关闭 MCP 接入时对 Bearer 写入返回 `401 unauthorized`。
+   - MCP `validateWorkspace` 补全孤立代理字符与 5 个强类型卡片字段校验；`offlineRead`/`offlineWrite` 补齐缺失主文件备份防覆盖保护，并将读旧文件与历史备份写入全量收进 `flock` + `dir_fd` + `O_NOFOLLOW` + `fsync` 原子区；`saveWorkspace` 实时重检 `local-api.disabled`；修复无 `order` 卡片 `beforeSiblingId`/`afterSiblingId` 排序、128 字符长 ID 连线越界、`resolveBoard` 精确名称优先、`httpCall` 线性缓冲与 RST 截断防护，以及 `startStdioServer` 通用头识别和 `EOF` 收尾。
+   - `tools/bundle.sh` 改用同目录临时文件原子替换、信号清理与段末换行保护；`build.sh` 从同一构建快照复制独立 HTML 归档。
+5. **三端统一契约测试、真实 Swift 回环测试与 200 步随机压测（[tools/contract-and-fuzz.test.mjs](tools/contract-and-fuzz.test.mjs)、[mcp/idea-canvas-mcp.test.mjs](mcp/idea-canvas-mcp.test.mjs)）**
+   - 新增自动编译运行真实 Swift `DiskWorkspace` 与 `CanvasLoopback` 的跨端契约与压测套件，`bun test` 扩至 **20 条用例、5,819 次断言**，全部通过。
+
+- **版本标记与备份**
+  - Git 提交及标签：`v2.1.4`
+  - 备份归档目录：`dist/releases/v2.1.4-b17/`
+
+---
+
 ## [2.1.3] (Build 16) - 2026-11-26
 
 集中修复桌面版与离线 HTML 剪贴板及编辑菜单路由、矩阵/时间轴/鱼骨图辅助线导出、MCP 无长度头 HTTP/1.1 响应分包解析，以及原位空卡切换类型后展开大窗丢类型等 4 处缺陷。

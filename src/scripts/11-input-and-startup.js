@@ -8,8 +8,9 @@ function beginPointer(event) {
     if (inlineEdit.element.contains(event.target)) return;
     finishInline({ keepFocus: true });
   }
+  const pan = spaceHeld || mode === 'hand' || event.button === 1;
   if (event.button > 2 || modalOpen() || layoutDraft ||
-      event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-subboard],a[href],.canvas-frame-input')) return;
+      (!pan && mode !== 'link' && event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-subboard],a[href],.canvas-frame-input'))) return;
   const here = point(event);
   lastPointerLocal = here;
   if (event.pointerType === 'touch') {
@@ -35,7 +36,6 @@ function beginPointer(event) {
   const handleEl = event.target.closest('[data-handle]');
   const handle = handleEl?.dataset.handle;
   const base = { pointerId: event.pointerId, start: here, moved: false };
-  const pan = spaceHeld || mode === 'hand' || event.button === 1;
   if (pan) {
     cancelCameraAnimation();
     panVelocity = { vx: 0, vy: 0, t: performance.now(), x: here.x, y: here.y };
@@ -64,9 +64,10 @@ function beginPointer(event) {
     CanvasInspector.close();
     const frame = CanvasViews.selectFrame(frameId);
     if (!frame) return;
+    const fullBox = CanvasViews.frameRect(frame);
     gesture = {
       ...base, kind: 'drag', keepGroup: true, frame: frameId,
-      startBox: frame.box ? { ...frame.box } : null,
+      startBox: fullBox ? { ...fullBox } : (frame.box ? { ...frame.box } : null),
       nodes: new Map(frame.members.map(id => [id, nodeBy(id)]).filter(([, node]) => !!node)),
     };
     event.preventDefault();
@@ -113,9 +114,13 @@ function beginPointer(event) {
   }
   const prior = event.shiftKey ? new Set(noteIds()) : new Set();
   setSelected(prior);
-  gesture = event.pointerType === 'touch'
-    ? { ...base, kind: 'pan', camera: { ...camera }, blank: true }
-    : { ...base, kind: 'marquee', prior };
+  if (event.pointerType === 'touch') {
+    cancelCameraAnimation();
+    panVelocity = { vx: 0, vy: 0, t: performance.now(), x: here.x, y: here.y };
+    gesture = { ...base, kind: 'pan', camera: { ...camera }, blank: true };
+  } else {
+    gesture = { ...base, kind: 'marquee', prior };
+  }
   event.preventDefault();
 }
 
@@ -284,7 +289,7 @@ function movePointer(event) {
       w: clamp(active.startBox.w + dx / camera.scale, 160, 1e6),
       h: clamp(active.startBox.h + dy / camera.scale, 110, 1e6),
     };
-    CanvasViews.renderFrames(null, visibility.hidden, { id: active.frameId, box: active.nextBox });
+    CanvasViews.renderFrames(null, visibility.hidden, { id: active.frameId, box: active.nextBox, resize: true });
   } else if (active.kind === 'drag' || active.kind === 'resize') {
     let worldDx = dx / camera.scale;
     let worldDy = dy / camera.scale;
@@ -610,6 +615,7 @@ const action = {
     const pinned = nodes.some(node => !node.pinned);
     applyChange(() => { for (const node of nodes) node.pinned = pinned; });
     toast(pinned ? '已固定所选节点的整理位置' : '已解除位置固定');
+    focusCanvas();
   },
   'focus-branch': () => CanvasViews.focus(),
   'frame-add': () => { CanvasInspector.close(); CanvasViews.addFrame(); },
@@ -887,6 +893,7 @@ viewport.addEventListener('focusin', event => {
 });
 viewport.addEventListener('click', event => {
   if (inlineEdit && inlineEdit.element.contains(event.target)) return;
+  if (mode !== 'select' || spaceHeld) return;
   const checkBtn = event.target.closest('[data-card-check]');
   if (checkBtn && !layoutDraft) {
     const id = checkBtn.closest('[data-card]')?.dataset.card;
@@ -992,6 +999,9 @@ for (const type of ['pointerup', 'pointercancel']) {
   minimap.addEventListener(type, event => { if (mapDrag?.id === event.pointerId) mapDrag = null; });
 }
 
+const isTextInputEl = el => !!el?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+const hasSelectedText = () => !!window.getSelection()?.toString();
+
 document.addEventListener('keydown', event => {
   if (event.isComposing || event.keyCode === 229) return;
   const key = event.key.toLowerCase();
@@ -1005,6 +1015,8 @@ document.addEventListener('keydown', event => {
   }
   if (mod && key === 'k') {
     event.preventDefault();
+    closeContextMenu();
+    closeSelectionSubPopovers();
     if (inlineEdit) finishInline({ keepFocus: true });
     togglePopover('search', true);
     return;
@@ -1025,16 +1037,14 @@ document.addEventListener('keydown', event => {
   }
   if (openPopover && key === 'escape') {
     event.preventDefault();
-    const toggle = popovers[openPopover].toggle;
     closePopover();
-    toggle.focus();
+    focusCanvas();
     return;
   }
   if (openSelectionSubPopover && key === 'escape') {
     event.preventDefault();
-    const toggle = selectionSubPopovers[openSelectionSubPopover].toggle;
     closeSelectionSubPopovers();
-    toggle?.focus();
+    focusCanvas();
     return;
   }
   if (key === 'escape' && gesture?.matrix) {
@@ -1048,7 +1058,7 @@ document.addEventListener('keydown', event => {
     focusCanvas();
     return;
   }
-  if (layoutDraft || event.target.closest('button:not([data-card-fold]), input, textarea, select, summary, [contenteditable], a')) return;
+  if (layoutDraft || isTextInputEl(event.target)) return;
   if (mod) {
     if (key === 'z') {
       event.preventDefault();
@@ -1064,21 +1074,22 @@ document.addEventListener('keydown', event => {
     } else if (key === 'c' && event.shiftKey && noteIds().length) {
       event.preventDefault();
       copySelectionAsMarkdown();
-    } else if (key === 'c' && noteIds().length) {
+    } else if (key === 'c' && noteIds().length && !hasSelectedText()) {
       event.preventDefault();
       lastKeyClip = { name: 'copy', at: performance.now() };
       copySelectionToClipboard(false);
-    } else if (key === 'x' && noteIds().length) {
+    } else if (key === 'x' && noteIds().length && !hasSelectedText()) {
       event.preventDefault();
       lastKeyClip = { name: 'cut', at: performance.now() };
       copySelectionToClipboard(true);
-    } else if (key === 'a' && (document.activeElement === viewport || document.activeElement === document.body)) {
+    } else if (key === 'a' && (document.activeElement === viewport || document.activeElement === document.body || !!document.activeElement?.closest?.('#viewport'))) {
       event.preventDefault();
       lastKeyClip = { name: 'select-all', at: performance.now() };
       setSelected(board().nodes.filter(node => !visibility.hidden.has(node.id)).map(node => node.id));
     }
     return;
   }
+  if (event.target.closest?.('button:not([data-card-fold]), summary, a')) return;
   if (event.key.startsWith('Arrow') && !event.target.closest('[data-card-fold]')) {
     event.preventDefault();
     if (event.altKey) nudge(event.key, event.shiftKey);
@@ -1199,6 +1210,7 @@ const quickToneButtons = Object.entries(CanvasData.tone).map(([id, { label }]) =
     const selectedNodes = noteIds().map(nodeBy).filter(Boolean);
     if (!selectedNodes.length) return;
     applyChange(() => { for (const n of selectedNodes) n.tone = id; });
+    focusCanvas();
   });
   return dot;
 });
@@ -1206,23 +1218,23 @@ $('#selection-tones').append(...quickToneButtons);
 
 document.addEventListener('copy', event => {
   if (modalOpen() || inlineEdit || layoutDraft) return;
-  if (event.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
-  if (window.getSelection()?.toString()) return;
+  if (isTextInputEl(event.target)) return;
+  if (hasSelectedText()) return;
   if (!noteIds().length) return;
   event.preventDefault();
   copySelectionToClipboard(false, event.clipboardData);
 });
 document.addEventListener('cut', event => {
   if (modalOpen() || inlineEdit || layoutDraft) return;
-  if (event.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
-  if (window.getSelection()?.toString()) return;
+  if (isTextInputEl(event.target)) return;
+  if (hasSelectedText()) return;
   if (!noteIds().length) return;
   event.preventDefault();
   copySelectionToClipboard(true, event.clipboardData);
 });
 document.addEventListener('paste', event => {
   if (modalOpen() || inlineEdit || layoutDraft) return;
-  if (event.target.closest('input, textarea, select, [contenteditable]')) return;
+  if (isTextInputEl(event.target)) return;
   event.preventDefault();
   void handleCanvasPaste(event.clipboardData);
 });
@@ -1351,21 +1363,25 @@ if (desktop) {
   $('#help-save-note').textContent = '桌面版和已连接的浏览器共用本机画布。收起窗口可以继续同步。用「文件」可复制同步链接、查看历史备份或导出 HTML。';
   const openingWorkspace = JSON.stringify(workspace);
   window.ideaCanvasCommand = name => {
+    const inEditable = isTextInputEl(document.activeElement);
     if (name === 'undo' || name === 'redo') {
-      if (document.activeElement?.closest?.('input, textarea, [contenteditable]:not([contenteditable="false"])')) return 'native';
-      if (!modalOpen() && performance.now() - lastKeyUndoAt > 400) undoRedo(name);
+      if (inEditable) return 'native';
+      if (modalOpen() || layoutDraft) return 'ignored';
+      if (performance.now() - lastKeyUndoAt > 400) undoRedo(name);
       return 'done';
     }
-    if (name === 'copy' || name === 'cut' || name === 'select-all') {
-      const inEditable = !!document.activeElement?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-      const hasTextSelection = name !== 'select-all' && !!window.getSelection()?.toString();
-      if (inEditable || modalOpen() || inlineEdit || layoutDraft || hasTextSelection) return 'native';
+    if (name === 'select-all') {
+      if (inEditable) return 'native';
+      if (modalOpen() || inlineEdit || layoutDraft) return 'ignored';
       if (lastKeyClip.name === name && performance.now() - lastKeyClip.at < 400) return 'done';
-      if (name === 'select-all') {
-        setSelected(board().nodes.filter(node => !visibility.hidden.has(node.id)).map(node => node.id));
-        focusCanvas();
-        return 'done';
-      }
+      setSelected(board().nodes.filter(node => !visibility.hidden.has(node.id)).map(node => node.id));
+      focusCanvas();
+      return 'done';
+    }
+    if (name === 'copy' || name === 'cut') {
+      if (inEditable || modalOpen() || inlineEdit || hasSelectedText()) return 'native';
+      if (layoutDraft) return 'ignored';
+      if (lastKeyClip.name === name && performance.now() - lastKeyClip.at < 400) return 'done';
       if (!noteIds().length) return 'ignored';
       copySelectionToClipboard(name === 'cut');
       return 'done';

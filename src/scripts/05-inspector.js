@@ -238,7 +238,7 @@ const CanvasInspector = (() => {
   }
 
   function themeCard(theme, isCustom, currentAppearance) {
-    const wrap = el('div');
+    const wrap = el('div', 'inspector-theme-wrap');
     wrap.style.position = 'relative';
     const cardBtn = el('button', 'inspector-theme-card');
     cardBtn.type = 'button';
@@ -778,7 +778,10 @@ const CanvasInspector = (() => {
       if (event.target.closest('[data-inspector-close]')) close();
     });
     panel.addEventListener('keydown', event => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') return;
+      const mod = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      if (mod && key === 'k') return;
+      if (mod && ['z', 'y', 's'].includes(key) && !event.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
       event.stopPropagation();
       if (event.key === 'Escape') {
         close();

@@ -182,7 +182,7 @@ const CanvasViews = (() => {
           if (!p) continue;
           anchored.set(node.id, node.pinned ? { x: node.x, y: node.y } : { x: coordinate(p.x + dx), y: coordinate(p.y + dy) });
         }
-        const finalPositions = externalObstacles.length
+        const finalPositions = externalObstacles.length || componentNodes.some(node => node.pinned)
           ? CanvasLayout.avoidFixed(anchored, componentNodes, Math.min(layout.nodeGap, 12), externalObstacles, layout.mode === 'down')
           : anchored;
         moved = applyBranchPositions(byId, finalPositions);
@@ -470,7 +470,13 @@ const CanvasViews = (() => {
     const other = index + delta;
     if (index < 0 || other < 0 || other >= order.length) return;
     [order[index], order[other]] = [order[other], order[index]];
-    commitOrder(order);
+    const current = board();
+    const before = capturePositions();
+    applyChange(() => {
+      order.forEach((itemId, idx) => { const node = nodeBy(itemId); if (node) node.order = idx; });
+      if (CanvasLayout.isTreeMode(current.settings.layout.mode)) relayoutAround(current, [id]);
+    });
+    animatePositions(before);
   }
 
   function clearDrag() {
@@ -689,7 +695,7 @@ const CanvasViews = (() => {
   function paddedBounds(members) {
     const box = boundsOf(members);
     if (!box) return null;
-    return { x: box.left - 18, y: box.top - 45, w: box.w + 36, h: box.h + 64 };
+    return { x: box.left - 18, y: box.top - 45, w: Math.max(120, box.w + 36), h: Math.max(90, box.h + 64) };
   }
 
   function unionBox(a, b) {
@@ -816,7 +822,7 @@ const CanvasViews = (() => {
         const isInside = insideIds.has(frame.id);
         if (!wasMember && isInside) {
           frame.members.push(node.id);
-          frame.box = unionBox(frame.box || frameBoxes.get(frame.id), { x: rect.x - 18, y: rect.y - 45, w: rect.w + 36, h: rect.h + 64 });
+          frame.box = unionBox(frame.box || frameBoxes.get(frame.id), { x: rect.x - 18, y: rect.y - 45, w: Math.max(120, rect.w + 36), h: Math.max(90, rect.h + 64) });
           changes.push(`已加入「${frame.name}」`);
         } else if (wasMember && !isInside) {
           if (!frame.box) {
@@ -915,8 +921,9 @@ const CanvasViews = (() => {
         return position ? { ...node, ...position } : node;
       });
       const memberBox = paddedBounds(members);
-      const baseBox = frameOverride?.id === frame.id ? frameOverride.box : frame.box;
-      const box = unionBox(baseBox || null, frameOverride?.id === frame.id ? null : memberBox);
+      const isOverride = frameOverride?.id === frame.id;
+      const baseBox = isOverride ? frameOverride.box : frame.box;
+      const box = unionBox(baseBox || null, isOverride && frameOverride.resize ? null : memberBox);
       const allHidden = frame.members.length > 0 && !frame.box && members.length === 0;
       element.hidden = !box || allHidden;
       if (!box) continue;

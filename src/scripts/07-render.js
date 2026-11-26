@@ -449,6 +449,23 @@ function renderPlainCardBody(container, text) {
   container.replaceChildren(fragment);
 }
 
+function linkifyRichElement(container) {
+  const skipTags = new Set(['A', 'CODE', 'PRE', 'BUTTON', 'SCRIPT', 'STYLE']);
+  function walk(node) {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        if (!/https?:\/\//i.test(child.textContent)) continue;
+        const frag = document.createDocumentFragment();
+        appendLinkedText(frag, child.textContent);
+        child.replaceWith(frag);
+      } else if (child.nodeType === Node.ELEMENT_NODE && !skipTags.has(child.tagName)) {
+        walk(child);
+      }
+    }
+  }
+  walk(container);
+}
+
 function decorateRichChecklists(container) {
   let checkIndex = 0;
   for (const li of container.querySelectorAll('li[data-done]')) {
@@ -614,6 +631,7 @@ function renderCards(nodes = board().nodes) {
         if (images.length) view.cover.append(images[0]);
         view.body.replaceChildren(fragment);
         decorateRichChecklists(view.body);
+        linkifyRichElement(view.body);
       } else if (node.body.trim()) {
         renderPlainCardBody(view.body, node.body);
       } else {

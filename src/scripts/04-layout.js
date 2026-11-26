@@ -709,10 +709,10 @@ function effectiveNodes(positions = layoutDraft?.result?.positions) {
 }
 
 function layoutSelectionIds() {
-  const { scope, selected, options } = layoutDraft;
+  const { scope, selected } = layoutDraft;
   const ids = scope === 'branch' ? CanvasLayout.subtree(hierarchy, selected[0])
     : scope === 'selection' ? selected : hierarchy.order;
-  const hidden = CanvasLayout.isTreeMode(options.mode) ? CanvasLayout.foldedDescendants(hierarchy, board().settings.folded) : null;
+  const hidden = board().settings.folded.length ? CanvasLayout.foldedDescendants(hierarchy, board().settings.folded) : null;
   return new Set(hidden ? ids.filter(id => !hidden.has(id)) : ids);
 }
 
@@ -748,7 +748,7 @@ function syncLayoutFields() {
 function calculateLayout(ids, options, scope, draftNodes = board().nodes) {
   if (options.rows === options.columns) options.columns = options.rows === 'tone' ? 'status' : 'tone';
   const tree = CanvasLayout.isTreeMode(options.mode) ? hierarchy : null;
-  const hidden = tree ? CanvasLayout.foldedDescendants(tree, board().settings.folded) : null;
+  const hidden = board().settings.folded.length ? CanvasLayout.foldedDescendants(hierarchy, board().settings.folded) : null;
   const rects = (hidden ? draftNodes.filter(node => !hidden.has(node.id)) : draftNodes).map(cardRect);
   const nodes = rects.filter(node => ids.has(node.id));
   if (!nodes.length) return null;
@@ -941,7 +941,7 @@ function applyLayout(ids, { scope, options, result, edits, anchorId }, targetCam
   const tree = CanvasLayout.isTreeMode(options.mode);
   const anchor = tree ? anchorId || layoutAnchor(result.positions, noteIds()) : null;
   const nextLayout = scope === 'board' ? options : settings.layout;
-  const nextGuides = scope === 'board' || result.guides.length ? result.guides : settings.guides;
+  const nextGuides = scope === 'board' ? result.guides : settings.guides;
   const moved = current.nodes.filter(node => {
     const position = result.positions.get(node.id);
     return position && (position.x !== node.x || position.y !== node.y);

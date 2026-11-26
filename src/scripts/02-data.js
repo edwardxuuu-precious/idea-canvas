@@ -47,7 +47,7 @@ const CanvasData = (() => {
   ];
   const isColor = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
   const listed = (value, choices, fallback) => choices.includes(value) ? value : fallback;
-  const asText = (value, limit) => typeof value === 'string' ? [...value.trim()].slice(0, limit).join('') : '';
+  const asText = (value, limit) => typeof value === 'string' ? sliceChars(value.trim(), limit) : '';
 
   function newAppearance() {
     return { background: '#f5f6f8', grid: 'dots', gridColor: '#94a3b8', gridSize: 24, accent: '#0f766e',
@@ -195,11 +195,11 @@ const CanvasData = (() => {
       requireValue(isCoordinate(x) && isCoordinate(y) && within(w, 64, sizeLimit) && within(h, 36, sizeLimit), '卡片位置或尺寸无效。');
       requireValue(typeof nodeTone === 'string' && Object.hasOwn(tone, nodeTone) && typeof title === 'string' && typeof body === 'string', '卡片类型或文字内容无效。');
       nodeIds.add(id);
-      const result = { id, x, y, w, h, tone: nodeTone, title, body };
+      const result = { id, x, y, w, h, tone: nodeTone, title: sanitizeUnicode(title), body: sanitizeUnicode(body) };
       if (richBody !== undefined && richBody !== null) {
         requireValue(typeof richBody === 'string', '卡片富文本内容无效。');
-        const clean = richContent(richBody);
-        if (clean.html) Object.assign(result, { body: clean.text, richBody: clean.html });
+        const clean = richContent(sanitizeUnicode(richBody));
+        if (clean.html) Object.assign(result, { body: sanitizeUnicode(clean.text), richBody: sanitizeUnicode(clean.html) });
       }
       if (typeof node.note === 'string' && node.note.trim()) result.note = utf8Slice(node.note.trim(), 16_000);
       const sources = parseSources(node.sources);
@@ -225,9 +225,9 @@ const CanvasData = (() => {
       requireValue(!pairs.has(pair), '同两张卡片的连线重复。');
       edgeIds.add(id);
       pairs.add(pair);
-      return { id, from, to, label, kind, ...(edge.style ? { style: styles(edge.style, 'line') } : {}) };
+      return { id, from, to, label: sanitizeUnicode(label), kind, ...(edge.style ? { style: styles(edge.style, 'line') } : {}) };
     });
-    return { id: value.id, name: value.name, nodes, edges, view: parseView(value.view),
+    return { id: value.id, name: sanitizeUnicode(value.name), nodes, edges, view: parseView(value.view),
       settings: settings(value.settings, nodes) };
   }
 

@@ -225,6 +225,9 @@ final class CanvasLoopback: @unchecked Sendable {
                 try validateJSONPayload(head)
                 return Request(route: .write, length: head.length)
             }
+            if head.headers["origin"] == nil && head.headers["authorization"] != nil {
+                throw Failure.unauthorized
+            }
             try authorizeJSON(head)
             guard authenticated(head.headers["cookie"]) else { throw Failure.unauthorized }
             return Request(route: .write, length: head.length)
@@ -308,6 +311,8 @@ final class CanvasLoopback: @unchecked Sendable {
                 return try Response.json(200, "OK", snapshot)
             } catch let conflict as CanvasSyncConflict {
                 return try Response.json(409, "Conflict", conflict.snapshot)
+            } catch let validation as CanvasValidationError {
+                return try Response.json(400, "Bad Request", ["error": "invalid_snapshot", "message": validation.message])
             } catch is DecodingError {
                 throw Failure.invalidSnapshot
             }
@@ -462,12 +467,18 @@ final class CanvasLoopback: @unchecked Sendable {
                 guard let delimiter = line.firstIndex(of: ":"), Self.token(line[..<delimiter]) else {
                     throw Failure.badRequest
                 }
-                let value = line[line.index(after: delimiter)...]
-                guard value.utf8.allSatisfy({ $0 == 9 || (32...126).contains($0) }) else {
-                    throw Failure.badRequest
-                }
                 let name = line[..<delimiter].lowercased()
                 guard critical.contains(name) else { continue }
+                let value = line[line.index(after: delimiter)...]
+                if name == "cookie" {
+                    guard value.utf8.allSatisfy({ $0 == 9 || $0 >= 32 && $0 != 127 }) else {
+                        throw Failure.badRequest
+                    }
+                } else {
+                    guard value.utf8.allSatisfy({ $0 == 9 || (32...126).contains($0) }) else {
+                        throw Failure.badRequest
+                    }
+                }
                 guard headers[name] == nil else { throw Failure.badRequest }
                 headers[name] = value.trimmingCharacters(in: .whitespaces)
             }

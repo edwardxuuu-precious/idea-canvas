@@ -11,8 +11,21 @@ const imageData = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$
 
 const utf8Encoder = new TextEncoder();
 
+function sanitizeUnicode(value) {
+  const text = typeof value === 'string' ? value : String(value ?? '');
+  if (!text) return '';
+  if (typeof text.toWellFormed === 'function') return text.toWellFormed();
+  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD');
+}
+
+function sliceChars(value, maxChars) {
+  const clean = sanitizeUnicode(value);
+  const chars = [...clean];
+  return chars.length > maxChars ? chars.slice(0, maxChars).join('') : clean;
+}
+
 function utf8Slice(value, maxBytes) {
-  const text = typeof value === 'string' ? value : String(value || '');
+  const text = sanitizeUnicode(value);
   if (!text || utf8Encoder.encode(text).length <= maxBytes) return text;
   let bytes = 0;
   let out = '';
@@ -64,7 +77,7 @@ function richFragment(html) {
         const src = node.getAttribute('src');
         if (src && src.length <= imageDataLimit && imageData.test(src)) {
           const image = document.createElement('img');
-          image.alt = (node.getAttribute('alt') || '卡片图片').slice(0, 140);
+          image.alt = sliceChars(node.getAttribute('alt') || '卡片图片', 140);
           image.src = src;
           output.append(image);
         }
@@ -109,6 +122,28 @@ function richFragment(html) {
   return result;
 }
 
+function stripLeadingChars(root, count) {
+  let remaining = count;
+  function walk(node) {
+    if (remaining <= 0) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (node.textContent.length <= remaining) {
+        remaining -= node.textContent.length;
+        node.textContent = '';
+      } else {
+        node.textContent = node.textContent.slice(remaining);
+        remaining = 0;
+      }
+      return;
+    }
+    for (const child of [...node.childNodes]) {
+      walk(child);
+      if (remaining <= 0) break;
+    }
+  }
+  walk(root);
+}
+
 function normalizeChecklistBlocks(root) {
   let activeList = null;
   for (const child of [...root.childNodes]) {
@@ -147,7 +182,9 @@ function normalizeChecklistBlocks(root) {
         }
         const li = document.createElement('li');
         li.setAttribute('data-done', m[2] === ' ' ? 'false' : 'true');
-        li.innerHTML = child.innerHTML.replace(/^\s*(?:[-*]\s*)?\[[ xX✓]\]\s+/, '');
+        const prefixLen = raw.match(/^\s*(?:[-*]\s*)?\[[ xX✓]\]\s+/)?.[0].length || 0;
+        if (prefixLen > 0) stripLeadingChars(child, prefixLen);
+        while (child.firstChild) li.append(child.firstChild);
         activeList.append(li);
         child.remove();
         continue;

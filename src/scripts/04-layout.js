@@ -607,15 +607,18 @@ const CanvasLayout = (() => {
     const result = new Map(fixed.map(node => [node.id, { x: node.x, y: node.y }]));
     const byId = new Map(nodes.map(node => [node.id, node]));
     const [depth, lane, depthSize, laneSize] = vertical ? ['y', 'x', 'h', 'w'] : ['x', 'y', 'w', 'h'];
-    for (const [id, point] of positions) {
+    const eps = 1e-6;
+    const movable = [...positions.entries()]
+      .filter(([id]) => !byId.get(id).pinned)
+      .sort(([idA, a], [idB, b]) => a[lane] - b[lane] || a[depth] - b[depth] || idA.localeCompare(idB));
+    for (const [id, point] of movable) {
       const node = byId.get(id);
-      if (node.pinned) continue;
       const along = point[depth];
-      const intervals = active.filter(other => along < other[depth] + other[depthSize] + gap && along + node[depthSize] + gap > other[depth])
+      const intervals = active.filter(other => along < other[depth] + other[depthSize] + gap - eps && along + node[depthSize] + gap - eps > other[depth])
         .map(other => [other[lane] - node[laneSize] - gap, other[lane] + other[laneSize] + gap]).sort((a, b) => a[0] - b[0]);
       let across = point[lane];
       for (const [start, end] of intervals) {
-        if (across <= start) break;
+        if (across <= start + eps) break;
         across = Math.max(across, end);
       }
       const placed = { ...point, [lane]: across };
@@ -737,7 +740,7 @@ const CanvasLayout = (() => {
     return positions;
   }
 
-  return { tree, subtree, project, compute, align, avoidFixed, categoryName, matrixTracks, reclassifyCard, branchLanes, reflowBranch,
+  return { tree, orient, subtree, project, compute, align, avoidFixed, categoryName, matrixTracks, reclassifyCard, branchLanes, reflowBranch,
     foldedDescendants, isTreeMode, overlappingRevealRoots };
 })();
 
@@ -1004,8 +1007,7 @@ function applyLayout(ids, { scope, options, result, edits, anchorId }, targetCam
       JSON.stringify(nextGuides) === JSON.stringify(settings.guides)) {
     render();
     if (anchor && camera.scale < .8) {
-      fitNodes(result.positions.keys(), true, anchor);
-      current.view = { ...camera };
+      fitNodes(result.positions.keys(), false, anchor);
       save();
     }
     focusCanvas();
@@ -1020,8 +1022,8 @@ function applyLayout(ids, { scope, options, result, edits, anchorId }, targetCam
   camera = targetCamera;
   render();
   animatePositions(before);
-  if (options.mode !== 'free') fitNodes(tree ? result.positions.keys() : ids, true, anchor);
-  current.view = { ...camera };
+  if (options.mode !== 'free') fitNodes(tree ? result.positions.keys() : ids, false, anchor);
+  else current.view = { ...camera };
   save();
   focusCanvas();
   toast(edits?.size ? '已更新分类，可撤销' : '已整理，可撤销');
@@ -1066,7 +1068,15 @@ function mountLayout() {
       const value = event.target.value;
       const key = id.slice(7);
       if (key === 'scope') layoutDraft.scope = value;
-      else layoutDraft.options[key === 'root' ? 'rootId' : key] = value || null;
+      else if (key === 'rows') {
+        const prev = layoutDraft.options.rows;
+        layoutDraft.options.rows = value;
+        if (layoutDraft.options.columns === value) layoutDraft.options.columns = prev;
+      } else if (key === 'columns') {
+        const prev = layoutDraft.options.columns;
+        layoutDraft.options.columns = value;
+        if (layoutDraft.options.rows === value) layoutDraft.options.rows = prev;
+      } else layoutDraft.options.rootId = value || null;
       previewLayout(true);
     });
   }
@@ -1121,6 +1131,13 @@ function paintMatrixKey(options, tracks) {
 }
 
 function paintLayoutGuides() {
+  if (CanvasViews.isFocused()) {
+    viewport.classList.toggle('is-matrix', false);
+    const key = $('#matrix-key');
+    if (key) key.hidden = true;
+    $('#layout-guide-layer').replaceChildren();
+    return;
+  }
   const { options, guides } = displayedLayout();
   const fragment = document.createDocumentFragment();
   const matrix = options.mode === 'matrix' && guides.length > 0;

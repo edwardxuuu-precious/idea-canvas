@@ -26,7 +26,7 @@ const CanvasViews = (() => {
     return !!focused && focused.boardId === board().id && !!nodeBy(focused.id);
   }
 
-  function visibility(tree) {
+  function computeVisibility(tree) {
     const current = board();
     const { folded, statuses, tags } = current.settings;
     const hidden = CanvasLayout.foldedDescendants(tree, folded);
@@ -155,7 +155,7 @@ const CanvasViews = (() => {
     applyChange(() => {
       current.settings.folded = [...folded];
       if (!opening && !rearrange) return;
-      const { hidden } = visibility(tree);
+      const { hidden } = computeVisibility(tree);
       const shown = opening ? children.filter(child => !hidden.has(child)) : [];
       for (const child of shown) cardIndex.get(child).element.hidden = false;
       const foldedOut = CanvasLayout.foldedDescendants(tree, current.settings.folded);
@@ -217,7 +217,7 @@ const CanvasViews = (() => {
         const positions = CanvasLayout.reflowBranch(current.nodes.map(cardRect), tree, id, layout);
         if (applyBranchPositions(byId, positions)) moved = true;
       }
-      if (moved && anchor && !visibility(tree).hidden.has(anchor)) followOpenedBranch(cardRect(byId.get(anchor)), [], false);
+      if (moved && anchor && !computeVisibility(tree).hidden.has(anchor)) followOpenedBranch(cardRect(byId.get(anchor)), [], false);
     }, { view: arranged && !isFocused() });
     if (moved) animatePositions(beforePositions);
   }
@@ -230,7 +230,7 @@ const CanvasViews = (() => {
     close();
     if (board().settings.folded.includes(id)) toggleFold(id);
     const tree = graph();
-    const { hidden } = visibility(tree);
+    const { hidden } = computeVisibility(tree);
     const branch = CanvasLayout.subtree(tree, id).filter(member => !hidden.has(member));
     render();
     fitNodes(branch.length ? branch : [id], true, id);
@@ -288,7 +288,7 @@ const CanvasViews = (() => {
     if (active) renderFocusPath(focused.id);
 
     const graphNow = graph();
-    const { filtering, matched } = visibility(graphNow);
+    const { filtering, matched } = computeVisibility(graphNow);
     const filterStrip = $('#view-filter-strip');
     if (filterStrip) {
       filterStrip.hidden = !filtering;
@@ -333,6 +333,7 @@ const CanvasViews = (() => {
     controls['view-options'].setAttribute('aria-expanded', 'false');
     controls.outline.setAttribute('aria-expanded', 'false');
     clearDrag();
+    scheduleMap();
   }
 
   function toggle(tab = 'view') {
@@ -347,12 +348,48 @@ const CanvasViews = (() => {
     clearDrag();
   }
 
+  function ensureVisible(ids) {
+    if (!ids?.length) return false;
+    let changed = false;
+    const current = board();
+    const status = current.settings.statuses.some(item => item.id === filter.status) ? filter.status : '';
+    const tag = current.settings.tags.some(item => item.id === filter.tag) ? filter.tag : '';
+    if ((status || tag) && filter.mode === 'hide') {
+      const hiddenByFilter = ids.some(id => {
+        const node = nodeBy(id);
+        return node && ((status && node.status !== status) || (tag && !node.tags?.includes(tag)));
+      });
+      if (hiddenByFilter) {
+        filter.mode = 'dim';
+        changed = true;
+        toast('已将筛选改为淡化模式以显示新卡片');
+      }
+    }
+    if (!isFocused()) return changed;
+    const tree = CanvasLayout.tree(current.nodes, current.edges);
+    const branch = new Set(CanvasLayout.subtree(tree, focused.id));
+    if (ids.every(id => branch.has(id))) return changed;
+    const parentId = tree.parent.get(focused.id);
+    if (parentId) {
+      const parentBranch = new Set(CanvasLayout.subtree(tree, parentId));
+      if (ids.every(id => parentBranch.has(id))) {
+        focused.id = parentId;
+        toast('已切换到上一级分支以显示新卡片');
+        return true;
+      }
+    }
+    focused = null;
+    toast('已退出分支专注以显示新卡片');
+    return true;
+  }
+
   function revealFromOutline(id) {
     const node = nodeBy(id);
     if (!node) return;
     const tree = graph();
-    const state = visibility(tree);
+    const state = computeVisibility(tree);
     if (state.hidden.has(id)) {
+      if (isFocused() && !CanvasLayout.subtree(tree, focused.id).includes(id)) focused = null;
       const ancestors = new Set();
       let parent = tree.parent.get(id);
       while (parent && !ancestors.has(parent)) {
@@ -621,6 +658,9 @@ const CanvasViews = (() => {
     const foldedMovedIds = ids.filter(id => current.settings.folded.includes(id));
     const hiddenMoved = foldedMovedIds.length ? CanvasLayout.foldedDescendants(tree, foldedMovedIds) : new Set();
     const oldParents = roots.map(id => tree.parent.get(id)).filter(Boolean);
+    const preDragBoxes = current.settings.frames.length
+      ? new Map(current.settings.frames.map(frame => [frame.id, frameRect(frame, null, visibility.hidden)]))
+      : null;
     applyChange(() => {
       for (const [id, position] of dropped) Object.assign(nodeBy(id), { x: position.x, y: position.y });
       const siblings = (tree.children.get(targetId) || []).filter(id => !roots.includes(id));
@@ -660,6 +700,7 @@ const CanvasViews = (() => {
           }
         }
       }
+      if (preDragBoxes) syncMembershipAfterDrag(ids.map(nodeBy).filter(Boolean), preDragBoxes);
     });
     animatePositions(before);
     toast((roots.length > 1 ? `已把 ${roots.length} 张卡片` : '已') + `挂到「${titleOf(target)}」下，可撤销`);
@@ -733,13 +774,14 @@ const CanvasViews = (() => {
   }
 
   function frameRect(frame, positions = null, hidden = null) {
+    if (hidden && frame.members.length === 0 && isFocused()) return null;
     const members = frame.members.filter(id => !hidden?.has(id)).map(id => {
       const node = nodeBy(id);
       if (!node) return null;
       const pos = positions?.get(id);
       return pos ? { ...node, ...pos } : node;
     }).filter(Boolean);
-    if (hidden && frame.members.length > 0 && !frame.box && !members.length) return null;
+    if (hidden && frame.members.length > 0 && !members.length) return null;
     const memberBox = paddedBounds(members);
     return unionBox(frame.box || null, memberBox);
   }
@@ -754,6 +796,10 @@ const CanvasViews = (() => {
     if (members.length) {
       box = paddedBounds(members.map(nodeBy));
     } else {
+      if (isFocused()) {
+        focused = null;
+        toast('已退出分支专注以创建空白分区');
+      }
       const center = worldLocation || { x: camera.x, y: camera.y };
       box = { x: coordinate(center.x - 180), y: coordinate(center.y - 120), w: 360, h: 240 };
     }
@@ -805,7 +851,7 @@ const CanvasViews = (() => {
   function framesAtPoint(worldPt) {
     const matches = [];
     for (const frame of board().settings.frames) {
-      const box = frameRect(frame);
+      const box = frameRect(frame, null, visibility.hidden);
       if (box && worldPt.x >= box.x && worldPt.x <= box.x + box.w && worldPt.y >= box.y && worldPt.y <= box.y + box.h) {
         matches.push(frame);
       }
@@ -830,7 +876,7 @@ const CanvasViews = (() => {
     const frames = board().settings.frames;
     if (!frames.length || !movedNodes.length) return [];
     const changes = [];
-    const frameBoxes = preDragBoxes || new Map(frames.map(frame => [frame.id, frameRect(frame)]));
+    const frameBoxes = preDragBoxes || new Map(frames.map(frame => [frame.id, frameRect(frame, null, visibility.hidden)]));
     for (const node of movedNodes) {
       const rect = cardRect(node);
       const center = { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
@@ -948,9 +994,9 @@ const CanvasViews = (() => {
       const isOverride = frameOverride?.id === frame.id;
       const baseBox = isOverride ? frameOverride.box : frame.box;
       const box = unionBox(baseBox || null, isOverride && frameOverride.resize ? null : memberBox);
-      const allHidden = frame.members.length > 0 && !frame.box && members.length === 0;
+      const allHidden = (frame.members.length > 0 && members.length === 0) || (frame.members.length === 0 && isFocused());
       element.hidden = !box || allHidden;
-      if (!box) continue;
+      if (!box || allHidden) continue;
       element.style.transform = 'translate(' + box.x + 'px,' + box.y + 'px)';
       element.style.width = box.w + 'px';
       element.style.height = box.h + 'px';
@@ -980,6 +1026,13 @@ const CanvasViews = (() => {
       const frame = currentFrame();
       if (!frame) return;
       const members = frame.members.filter(id => !!nodeBy(id));
+      if (isFocused()) {
+        const branch = new Set(CanvasLayout.subtree(graph(), focused.id));
+        if (!members.length || members.some(id => !branch.has(id))) {
+          focused = null;
+          render();
+        }
+      }
       setSelected(members);
       if (members.length) fitNodes(members, true);
       else if (frame.box) animateCamera({ x: frame.box.x + frame.box.w / 2, y: frame.box.y + frame.box.h / 2, scale: Math.max(camera.scale, .8) }, { duration: 240 });
@@ -1038,8 +1091,8 @@ const CanvasViews = (() => {
   }
 
   return {
-    mount, open, close, toggle, refresh, reset, visibility, expandAll, adoptAsChildren,
-    toggleFold, focus, exitFocus, isFocused, addFrame, selectFrame, renderFrames, revealFromOutline,
+    mount, open, close, toggle, refresh, reset, visibility: computeVisibility, expandAll, adoptAsChildren,
+    toggleFold, focus, exitFocus, isFocused, ensureVisible, addFrame, selectFrame, renderFrames, revealFromOutline,
     editFrameName, frameRect, markDropTargets, syncMembershipAfterDrag, removeFrameById: id => {
       if (activeFrame === id) activeFrame = null;
       applyChange(() => { board().settings.frames = board().settings.frames.filter(frame => frame.id !== id); });

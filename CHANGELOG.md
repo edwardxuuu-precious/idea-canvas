@@ -6,6 +6,36 @@
 
 ---
 
+## [2.2.1] (Build 19) - 2026-11-26
+
+集中根治 `v2.2.0` 新增功能引入的缩放可读性、分支聚焦与样式回归，并通过多轮对抗式全仓审计同步清零布局、分区、剪贴板、导出、桌面同步与 MCP 侧的全部隐藏缺陷（48 项修复，三轮复核零残留）。
+
+### 修复清单（更新了什么 / 为什么更新 / 具体做了什么）
+
+1. **缩放概览可读性重构与屏幕空间悬浮预览泡（[src/index.html](src/index.html)、[src/styles/03-cards.css](src/styles/03-cards.css)、[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)）**
+   - **为什么**：`v2.2.0` 在低于 30% 缩放时隐藏第 3 层卡片文字使外围叶子全变空白框，且 `.card-glance` 放大字号可达 110px 导致文字在卡片内上下裁切、英文单词断在词中；无标题正文卡概览误显「未命名卡片」。
+   - **做了什么**：移除 `is-far` 空白框隐藏与淡化，按层级与紧凑胶囊规格合理限高 `.card-glance` 字号（第 0–1 层最高 26px、第 2–3 层最高 23px、胶囊最高 21–24px），改为 `overflow-wrap: break-word` 避免词中断裂，无标题卡片取正文首行作概览；新增 100% 屏幕尺寸悬浮预览泡 `#glance-preview`（`z-index: 8`、避让所选工具栏、自动复位测宽、离屏/缩放/拖拽/弹窗/失焦即时隐藏），拉远到 23% 时全树清晰可见且悬停即读完整内容。
+2. **分支钻入聚焦、筛选隐藏与分区/矩阵交互闭环（[src/scripts/06-views.js](src/scripts/06-views.js)、[src/scripts/04-layout.js](src/scripts/04-layout.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)、[src/scripts/10-clipboard.js](src/scripts/10-clipboard.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)）**
+   - **为什么**：分支专注下通过 `⌘K`/大纲/定位分区跳转或新建、复制、粘贴、提取子画布会让目标或新卡片立即消失；非当前分支分区和整表布局辅助线在聚焦下仍显示，甚至继续拦截卡片拖拽或触发隐形矩阵改分类；`06-views.js` 内部同名 `visibility` 函数遮蔽全局 `visibility.hidden`，导致自由模式拖挂子分支抛 `TypeError`；聚焦或筛选下调整分区大小会误踢隐藏成员卡。
+   - **做了什么**：新增 `CanvasViews.ensureVisible` 在聚焦或只显匹配筛选下自动上扩或退出以显示新卡，`revealFromOutline`/`locate-frame` 跨分支跳转自动退出聚焦，`addFrame` 建空白分区自动退出聚焦，`paintLayoutGuides` 与导出在聚焦下隐藏整表辅助线，禁用聚焦态矩阵拖拽；将内部 `visibility` 改名为 `computeVisibility` 解除遮蔽，所有分区命中与拖拽归组统一传入 `visibility.hidden`，拖挂子分支同步更新分区归属；分区缩放精确保留非折叠隐藏成员与筛选保留的嵌套折叠子卡。
+3. **样式对比度、左侧色条、分支虚线同步与面板交互修复（[src/styles/02-chrome.css](src/styles/02-chrome.css)、[src/styles/04-dock-and-dialogs.css](src/styles/04-dock-and-dialogs.css)、[src/styles/05-panels.css](src/styles/05-panels.css)、[src/styles/06-editing-and-menus.css](src/styles/06-editing-and-menus.css)、[src/scripts/05-inspector.js](src/scripts/05-inspector.js)、[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)）**
+   - **为什么**：浅色模式无外框或空白主题卡出现白底白字；内置冷灰蓝/羊皮纸主题剥离卡片左侧 3px 强调色条；摘要模式点击「已完成 N 项」仍被 3 行截断遮住；右键切换分支虚线后锁死样式面板读数与重置；多选不同背景卡片时属性面板漏报混合态；原位清单勾选未按缩放比换算命中区；样式面板缺少 `blur` 清理导致 `pointerup` 丢失后卡死；同步提示条层级高于 `⌘K` 搜索框，短窗口菜单被裁切。
+   - **做了什么**：重构无外框/空白主题卡变量与特异性规则（覆盖浅/深色及第 3 层）；左侧 3px 色条改为仅避让 `plain`/`pill` 且 `data-custom-fill` 仅跟随单卡自定义填充；摘要模式在 `[data-show-done]` 时解除 3 行裁切并清理过期的 `data-show-done` 与焦点归还；右键切虚线与样式面板「分支」页签统一读写与清除 `edge.style` 覆盖；改为纯色计算多卡默认值并补齐 `blur` 清理；原位复选框命中区乘以 `camera.scale`；下调 `.sync-alert` 至 `z-index: 9`，补齐弹出菜单与右键菜单滚动上限、全局 `Esc` 关闭右侧抽屉与关闭抽屉重绘小地图、平移缩放关闭选择子浮层、更新操作指南标题为 `v2.2`。
+4. **布局稳定性、绕行连线、子画布防环与 PNG/SVG 导出对齐（[src/scripts/02-data.js](src/scripts/02-data.js)、[src/scripts/04-layout.js](src/scripts/04-layout.js)、[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/09-export.js](src/scripts/09-export.js)、[src/scripts/10-clipboard.js](src/scripts/10-clipboard.js)）**
+   - **为什么**：`avoidFixed` 按倒序 Map 与零浮点容差排障，在紧凑密度下会反转同级顺序并让卡片跳位；`applyLayout` 写入未动画结束的旧相机视角；矩阵切换行/列同轴时直接弹回而非互换；`⌘K` 在布局预览态跳转未退出预览；非默认 `rootId` 反向边与树形 `link` 边未走多列绕行曲线；剪切粘贴子画布入口到后代画布会形成 `parentId` 死循环且撤销不还原；导出缺失左侧 3px 色条、折叠待办按钮与 `is-far` 恢复，且 `color(srgb ...)` 在外部 SVG 编辑器变黑。
+   - **做了什么**：`avoidFixed` 按轨道排序并加 `1e-6` 容差；`applyLayout` 通过 `fitNodes(..., false, anchor)` 落盘目标视角；矩阵行列下拉同轴自动互换；`goToMatch` 跳转前取消布局预览；导出 `CanvasLayout.orient` 供渲染与导出共用，`routedBranchCurve` 支持反向边与树形 `link` 边；`CanvasData.parse` 与粘贴入口阻断任意长度 `parentId` 环并按需触发整库撤销快照；`CanvasExport` 新增 `srgbToRgb` 转换、绘制 `::before` 3px 色条与 `.done-toggle` 文案。
+5. **桌面同步导出修复、防 App Nap 断连与 MCP 保真修复（[macos/CanvasApp.swift](macos/CanvasApp.swift)、[src/scripts/03-workspace-sync.js](src/scripts/03-workspace-sync.js)、[mcp/idea-canvas-mcp.mjs](mcp/idea-canvas-mcp.mjs)）**
+   - **为什么**：`CanvasApp.swift` 全局替换 `<!-- LOCAL_CANVAS_SYNC -->` 同时改坏了页面脚本中的导出模板，导致浏览器同步页导出的离线 HTML 无法在 HTTP 下打开；桌面版后台闲置后触发 macOS App Nap 使 `127.0.0.1:47471` 本地接口超时；浏览器同步重载后草稿基线丢失或误报冲突、已开页签粘贴 `#pair=` 链接被吞；MCP 更新正文时正则遇 `alt` 含 `>` 会截断并销毁嵌入图片，且 `canvas_get_cards(branchRootId)` 漏掉 `link` 子节点。
+   - **做了什么**：Swift 端仅替换首处占位符且前端拆分字面量双保险；回环服务就绪期间持有 `.userInitiatedAllowingIdleSystemSleep` 活动并在不可用/退出时释放；草稿持久化 `base` 基线并在服务端已同步同内容时自动清理，`hashchange` 始终执行 `/pair` 重配并恢复冲突提示按钮；MCP 改用引号感知正则保留完整 `<img>` 标签并统一用 `buildOutlineTree` 展开分支卡片。
+
+- **验证与回归测试**
+  - `bun test` 扩至 **26 条用例、21,542 次断言**，全部通过；完成 54 卡 4 级树 23%/34%/100% 实时浏览器视觉验收与三轮对抗式代码及无头 Chromium 复核，确认零残留 Bug。
+- **版本标记与备份**
+  - Git 提交及标签：`v2.2.1`
+  - 备份归档目录：`dist/releases/v2.2.1-b19/`
+
+---
+
 ## [2.2.0] (Build 18) - 2026-11-26
 
 围绕数百张卡片规模的大画布阅读体验，完成六项视图与布局优化，并在全量自动化测试与真实画布浏览器对比中验证通过。

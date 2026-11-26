@@ -9,6 +9,7 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     private let fileQueue = DispatchQueue(label: "idea-canvas.file")
     private var store: DiskWorkspace?
     private var syncServer: CanvasLoopback?
+    private var syncActivity: NSObjectProtocol?
     private var syncReady = false
     private let syncPort: UInt16 = 47471
     private var window: NSWindow?
@@ -118,12 +119,19 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     func applicationWillTerminate(_ notification: Notification) {
         syncServer?.stop()
+        if let activity = syncActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            syncActivity = nil
+        }
     }
 
     private func beginBrowserSync(layoutURL: URL, store: DiskWorkspace) {
         do {
             let html = try String(contentsOf: layoutURL, encoding: .utf8)
-            let page = html.replacingOccurrences(of: "<!-- LOCAL_CANVAS_SYNC -->", with: #"<meta id="canvas-browser-sync">"#)
+            var page = html
+            if let range = page.range(of: "<!-- LOCAL_CANVAS_SYNC -->") {
+                page.replaceSubrange(range, with: #"<meta id="canvas-browser-sync">"#)
+            }
             let server = try CanvasLoopback(
                 port: syncPort, page: Data(page.utf8), root: dataRoot,
                 read: { try store.snapshot(since: $0) },
@@ -140,7 +148,21 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
             )
             syncServer = server
             server.start { [weak self] ready in
-                Task { @MainActor [weak self] in self?.syncReady = ready }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.syncReady = ready
+                    if ready {
+                        if self.syncActivity == nil {
+                            self.syncActivity = ProcessInfo.processInfo.beginActivity(
+                                options: [.userInitiatedAllowingIdleSystemSleep],
+                                reason: "Serving local canvas sync and agent API on loopback"
+                            )
+                        }
+                    } else if let activity = self.syncActivity {
+                        ProcessInfo.processInfo.endActivity(activity)
+                        self.syncActivity = nil
+                    }
+                }
             }
         } catch {
             syncReady = false

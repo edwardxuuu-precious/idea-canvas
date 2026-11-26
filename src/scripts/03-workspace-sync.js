@@ -1,4 +1,4 @@
-const sourceHtml = '<!doctype html>\n' + document.documentElement.outerHTML.replace('<meta id="canvas-browser-sync">', '<!-- LOCAL_CANVAS_SYNC -->');
+const sourceHtml = '<!doctype html>\n' + document.documentElement.outerHTML.replace('<meta id="canvas-browser-sync">', '<!-- ' + 'LOCAL_CANVAS_SYNC -->');
 const $ = selector => document.querySelector(selector);
 const controls = Object.fromEntries([...document.querySelectorAll('[data-action]')].map(el => [el.dataset.action, el]));
 const viewport = $('#viewport');
@@ -54,6 +54,8 @@ const cardSizes = new ResizeObserver(entries => {
   if (!changed) return;
   renderEdges(activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions, dirtyIds);
   CanvasViews.renderFrames(activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions, visibility.hidden);
+  positionSelectionBar();
+  positionSourcePopover();
   scheduleMap();
 });
 const history = new Map();
@@ -165,10 +167,27 @@ const syncing = !!desktop || browserSync;
 const persistence = syncing ? null : CanvasData.storage(embedded.edition);
 const draftKey = 'idea-canvas:uncommitted:v1';
 if (browserSync) {
-  window.addEventListener('hashchange', () => {
-    if (!new URLSearchParams(location.hash.slice(1)).has('pair')) return;
-    if ($('#sync-gate').hidden) window.history.replaceState(null, '', location.pathname);
-    else location.reload();
+  window.addEventListener('hashchange', async () => {
+    const code = new URLSearchParams(location.hash.slice(1)).get('pair');
+    if (!code) return;
+    if (!$('#sync-gate').hidden) {
+      location.reload();
+      return;
+    }
+    window.history.replaceState(null, '', location.pathname);
+    try {
+      await browserRequest('/pair', jsonRequest('POST', { code }));
+      retryAt = 0;
+      connectionIssue = false;
+      if (unresolved) {
+        handleSyncConflict();
+        toast('已重新配对，请点「保留为新画布」继续同步');
+      } else {
+        void pullShared();
+      }
+    } catch (error) {
+      handleSyncFailure(error);
+    }
   });
 }
 let workspace = embedded.workspace ? CanvasData.parse(JSON.stringify(embedded.workspace)) : demoWorkspace();
@@ -234,8 +253,14 @@ try {
     try {
       const draft = JSON.parse(sessionStorage.getItem(draftKey));
       if (draft) {
-        workspace = CanvasData.parse(draft.json);
-        if (dirty() && (draft.unresolved === true || draft.revision !== revision)) unresolved = true;
+        const parsedDraft = CanvasData.parse(draft.json);
+        if (contentOf(parsedDraft) === lastSyncedContent) {
+          sessionStorage.removeItem(draftKey);
+        } else {
+          workspace = parsedDraft;
+          if (typeof draft.base === 'string') lastSyncedContent = draft.base;
+          if (dirty() && (draft.unresolved === true || draft.revision !== revision)) unresolved = true;
+        }
       }
     } catch {
       // The disk snapshot is still usable if a browser draft is unavailable.
@@ -313,8 +338,11 @@ function desktopStateLabel(label, state = 'ok', tip = '内容写入本机画布�
 function rememberDraft() {
   if (!browserSync) return;
   try {
-    if (dirty()) sessionStorage.setItem(draftKey, JSON.stringify({ revision, unresolved, json: JSON.stringify(workspace) }));
-    else sessionStorage.removeItem(draftKey);
+    if (dirty()) {
+      sessionStorage.setItem(draftKey, JSON.stringify({
+        revision, unresolved, base: lastSyncedContent, json: JSON.stringify(workspace),
+      }));
+    } else sessionStorage.removeItem(draftKey);
   } catch {
     // A dirty tab still has the exit prompt and its file export.
   }

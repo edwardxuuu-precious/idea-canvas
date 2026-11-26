@@ -345,22 +345,27 @@ const CanvasInspector = (() => {
     return block;
   }
 
-  function styleTarget(owners, name, inherited, defaultValues) {
+  function styleTarget(owners, name, inherited, defaultValues, hooks = null) {
     function current(owner) {
       return name ? owner[name] || {} : owner;
     }
 
     function read(key) {
-      const first = owners[0];
-      const local = current(first)[key];
-      const fallback = owner => (typeof inherited === 'function' ? inherited(owner) : inherited)[key] ?? defaultValues[key];
-      const effective = local ?? fallback(first);
-      const mixed = owners.some(owner => (current(owner)[key] ?? fallback(owner)) !== effective);
-      return { effective, mixed, overridden: owners.some(owner => current(owner)[key] !== undefined) };
+      const baseOf = owner => typeof defaultValues === 'function' ? defaultValues(owner) : defaultValues;
+      const fallback = owner => (typeof inherited === 'function' ? inherited(owner) : inherited)[key] ?? baseOf(owner)[key];
+      const localOf = owner => {
+        const override = hooks?.readOverride?.(owner, key);
+        return override !== undefined ? override : current(owner)[key];
+      };
+      const effective = localOf(owners[0]) ?? fallback(owners[0]);
+      const mixed = owners.some(owner => (localOf(owner) ?? fallback(owner)) !== effective);
+      return { effective, mixed, overridden: owners.some(owner => localOf(owner) !== undefined) || !!hooks?.hasOverride?.(key) };
     }
 
     function write(key, value) {
-      if (owners.every(owner => current(owner)[key] === value)) return;
+      if (owners.every(owner => current(owner)[key] === value) && !hooks?.hasOverride?.(key)) return;
+      const baseOf = owner => typeof defaultValues === 'function' ? defaultValues(owner) : defaultValues;
+      const fallback = owner => (typeof inherited === 'function' ? inherited(owner) : inherited)[key] ?? baseOf(owner)[key];
       applyChange(() => {
         for (const owner of owners) {
           if (!name) {
@@ -368,22 +373,25 @@ const CanvasInspector = (() => {
             else owner[key] = value;
           } else {
             const next = { ...current(owner) };
-            if (value === undefined) delete next[key];
+            const onlyEdgeOverride = value !== undefined && next[key] === undefined && hooks?.readOverride?.(owner, key) !== undefined && value === fallback(owner);
+            if (value === undefined || onlyEdgeOverride) delete next[key];
             else next[key] = value;
             if (Object.keys(next).length) owner[name] = next;
             else delete owner[name];
           }
         }
+        hooks?.onWrite?.(key, value);
       });
     }
 
     function reset() {
-      if (owners.every(owner => !Object.keys(current(owner)).length)) return;
+      if (owners.every(owner => !Object.keys(current(owner)).length) && !hooks?.hasOverride?.()) return;
       applyChange(() => {
         for (const owner of owners) {
           if (name) delete owner[name];
           else for (const key of Object.keys(owner)) delete owner[key];
         }
+        hooks?.onReset?.();
       });
     }
 
@@ -464,18 +472,28 @@ const CanvasInspector = (() => {
   }
 
   const cardDefaults = { fill: '#ffffff', border: '#e2e8f0', text: '#0f172a', size: 14, shape: 'rounded' };
+  const darkCardDefaults = { fill: '#181c24', border: '#2a303c', text: '#f1f5f9', size: 14, shape: 'rounded' };
   const branchDefaults = { color: '#64748b', width: 1.5, shape: 'curve', dash: 'solid', arrow: 'none' };
   const linkDefaults = { ...branchDefaults, color: '#94a3b8', arrow: 'end' };
 
-  function cardDefaultValues(node) {
-    if (!node) return cardDefaults;
-    const element = document.querySelector('.card[data-card="' + CSS.escape(node.id) + '"]');
-    if (!element) return cardDefaults;
-    const css = getComputedStyle(element);
-    const readColor = (name, fallback) => color.test(css.getPropertyValue(name).trim()) ? css.getPropertyValue(name).trim() : fallback;
+  function cardDefaultValues(node, settings = board().settings) {
+    const dark = isDarkHex(settings?.appearance?.background);
+    const base = dark ? darkCardDefaults : cardDefaults;
+    if (!node || node.tone !== 'topic') return base;
+    const accentHex = color.test(settings?.appearance?.accent || '') ? settings.appearance.accent : (dark ? '#10b981' : '#0f766e');
+    if ((nodeDepths.get(node.id) ?? 0) >= 3) {
+      return {
+        ...base,
+        fill: mixHex(accentHex, dark ? '#181c24' : '#ffffff', dark ? 0.85 : 0.93),
+        border: mixHex(accentHex, dark ? '#181c24' : '#ffffff', dark ? 0.66 : 0.74),
+        text: dark ? '#f1f5f9' : '#1e293b',
+      };
+    }
     return {
-      ...cardDefaults, fill: readColor('--card-bg', cardDefaults.fill),
-      border: readColor('--card-line', cardDefaults.border), text: readColor('--card-ink', cardDefaults.text),
+      ...base,
+      fill: mixHex(accentHex, '#0b171d', 0.54),
+      border: mixHex(accentHex, '#081116', 0.62),
+      text: '#f8fafc',
     };
   }
 
@@ -483,7 +501,8 @@ const CanvasInspector = (() => {
     const appearance = settings.appearance;
     const canvas = section('背景与网格');
     canvas.append(appearanceFields(appearance));
-    const titles = styleSection('默认卡片样式', styleTarget([appearance.card], null, {}, cardDefaults), cardStyleFields, true);
+    const boardCardBase = isDarkHex(appearance.background) ? darkCardDefaults : cardDefaults;
+    const titles = styleSection('默认卡片样式', styleTarget([appearance.card], null, {}, boardCardBase), cardStyleFields, true);
     const branches = styleSection('默认分支样式', styleTarget([appearance.branch], null, {}, branchDefaults), lineStyleFields, true);
     const links = styleSection('默认关系线样式', styleTarget([appearance.link], null, {}, linkDefaults), lineStyleFields, true);
     body.append(showThemes(settings), canvas, rainbowSection(), titles, branches, links);
@@ -516,7 +535,7 @@ const CanvasInspector = (() => {
     const typeField = field('卡片类型', tonePills);
     typeField.classList.add('inspector-field-full');
     const inherited = owner => cardDefaultsFor(owner.id, settings);
-    const target = styleTarget(cards, 'style', inherited, cardDefaultValues(cards[0]));
+    const target = styleTarget(cards, 'style', inherited, owner => cardDefaultValues(owner, settings));
     body.append(styleSection('卡片样式', target, owner => {
       const fields = cardStyleFields(owner);
       fields.prepend(typeField);
@@ -534,7 +553,33 @@ const CanvasInspector = (() => {
       ...settings.appearance.branch,
       ...inheritedBranches.get(hierarchy.parent.get(owner.id)),
     });
-    const target = styleTarget(cards, 'branchStyle', inherited, branchDefaults);
+    const branchEdges = () => {
+      const ids = new Set(cards.map(card => card.id));
+      const edge = chosenEdge();
+      return board().edges.filter(item => item.kind === 'branch' && (item.id === edge?.id || ids.has(item.to)));
+    };
+    const clearEdgeOverride = key => {
+      for (const edge of branchEdges()) {
+        if (!edge.style) continue;
+        if (key) {
+          delete edge.style[key];
+          if (!Object.keys(edge.style).length) delete edge.style;
+        } else {
+          delete edge.style;
+        }
+      }
+    };
+    const incomingEdge = owner => {
+      const edge = chosenEdge();
+      if (edge?.kind === 'branch' && edge.to === owner.id) return edge;
+      return board().edges.find(item => item.kind === 'branch' && item.to === owner.id) || null;
+    };
+    const target = styleTarget(cards, 'branchStyle', inherited, branchDefaults, {
+      readOverride: (owner, key) => incomingEdge(owner)?.style?.[key],
+      hasOverride: key => branchEdges().some(edge => edge.style && (key ? edge.style[key] !== undefined : Object.keys(edge.style).length > 0)),
+      onWrite: key => clearEdgeOverride(key),
+      onReset: () => clearEdgeOverride(null),
+    });
     const block = styleSection('分支线条样式', target, lineStyleFields);
     body.append(block, rainbowSection());
   }
@@ -750,6 +795,7 @@ const CanvasInspector = (() => {
     if (!panel) return;
     panel.hidden = true;
     setExpanded(false);
+    scheduleMap();
   }
 
   function toggle() {
@@ -772,6 +818,9 @@ const CanvasInspector = (() => {
     panel.addEventListener('pointerdown', event => { activePointer = event.pointerId; }, true);
     window.addEventListener('pointerup', finishPointer, true);
     window.addEventListener('pointercancel', finishPointer, true);
+    window.addEventListener('blur', () => {
+      if (activePointer !== null) finishPointer({ pointerId: activePointer });
+    });
     panel.addEventListener('click', event => {
       const control = event.target.closest('[data-inspector-tab]');
       if (control) open(control.dataset.inspectorTab);

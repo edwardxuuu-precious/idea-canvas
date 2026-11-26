@@ -84,13 +84,34 @@ const CanvasExport = (() => {
   const cjk = '\u2E80-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F';
   const tokenPattern = new RegExp(`[${cjk}]|[^\\s${cjk}]+\\s*|\\s+`, 'g');
 
+  function srgbToRgb(text) {
+    const srgb = text.match(/^color\(\s*srgb\s+([\d.eE+-]+%?)\s+([\d.eE+-]+%?)\s+([\d.eE+-]+%?)(?:\s*\/\s*([\d.eE+-]+%?))?\s*\)$/i);
+    if (!srgb) return null;
+    const ch = raw => {
+      const num = raw.endsWith('%') ? parseFloat(raw) / 100 : parseFloat(raw);
+      return Math.round(clamp(num, 0, 1) * 255);
+    };
+    const r = ch(srgb[1]);
+    const g = ch(srgb[2]);
+    const b = ch(srgb[3]);
+    if (srgb[4] !== undefined) {
+      const aRaw = srgb[4];
+      const a = clamp(aRaw.endsWith('%') ? parseFloat(aRaw) / 100 : parseFloat(aRaw), 0, 1);
+      if (a < 0.999) return `rgba(${r}, ${g}, ${b}, ${Math.round(a * 1000) / 1000})`;
+    }
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
   function color(value, fallback = 'rgba(0, 0, 0, 0)') {
     const text = (value || '').trim();
     if (!text) return fallback;
+    const converted = srgbToRgb(text);
+    if (converted) return converted;
     if (/^(#|rgb)/i.test(text)) return text;
     measure.fillStyle = '#010203';
     measure.fillStyle = text;
-    return measure.fillStyle === '#010203' ? fallback : measure.fillStyle;
+    if (measure.fillStyle === '#010203') return fallback;
+    return srgbToRgb(measure.fillStyle) || measure.fillStyle;
   }
 
   const isTransparent = value => !value || value === 'transparent' || /rgba\([^)]*,\s*0(\.0+)?\)$/.test(value);
@@ -202,6 +223,17 @@ const CanvasExport = (() => {
       fill, fill2, stroke: color(style.borderTopColor), strokeWidth: parseFloat(style.borderTopWidth) || 0,
       shadow: !isTransparent(fill),
     });
+    const before = getComputedStyle(card, '::before');
+    if (before.content && before.content !== 'none' && before.display !== 'none') {
+      const bw = parseFloat(before.width) || 0;
+      const bFill = color(before.backgroundColor);
+      if (bw > 0 && !isTransparent(bFill)) {
+        const bTop = Number.isFinite(parseFloat(before.top)) ? parseFloat(before.top) : 12;
+        const bBottom = Number.isFinite(parseFloat(before.bottom)) ? parseFloat(before.bottom) : 12;
+        const bh = Math.max(0, h - bTop - bBottom);
+        if (bh > 0) shapes.push({ type: 'rect', x, y: y + bTop, w: bw, h: bh, r: 1.5, fill: bFill });
+      }
+    }
     const titleBox = !view.title.hidden && boxIn(view.title, card);
     if (titleBox) {
       const font = fontOf(view.title);
@@ -267,6 +299,17 @@ const CanvasExport = (() => {
         for (const child of view.body.childNodes) emitBodyNode(child);
       }
     }
+    const doneBox = !view.doneToggle.hidden && getComputedStyle(view.doneToggle).display !== 'none' && boxIn(view.doneToggle, card);
+    if (doneBox && doneBox.w && doneBox.h) {
+      const doneStyle = getComputedStyle(view.doneToggle);
+      const font = fontOf(view.doneToggle);
+      const glyph = card.hasAttribute('data-show-done') ? '▾ ' : '▸ ';
+      const opacity = parseFloat(doneStyle.opacity);
+      shapes.push({
+        ...textShape(x, y, { ...doneBox, w: Math.max(doneBox.w + 12, w - doneBox.x - 12) }, view.doneToggle, glyph + view.doneToggle.textContent.trim(), 1, font),
+        opacity: Number.isFinite(opacity) && opacity < 1 ? opacity : undefined,
+      });
+    }
     if (!view.status.hidden) {
       const dot = view.status.querySelector('i');
       const dotBox = dot && boxIn(dot, card);
@@ -320,7 +363,7 @@ const CanvasExport = (() => {
 
     const layout = displayedLayout();
     const layoutGuides = layout.guides || [];
-    const includeGuides = layoutGuides.length > 0 && (!wanted || current.nodes.every(node => visibility.hidden.has(node.id) || wanted.has(node.id)));
+    const includeGuides = !CanvasViews.isFocused() && layoutGuides.length > 0 && (!wanted || current.nodes.every(node => visibility.hidden.has(node.id) || wanted.has(node.id)));
     const matrix = includeGuides && layout.options.mode === 'matrix';
     const canvasBg = color(current.settings.appearance.background, '#f5f6f8');
     if (includeGuides) {
@@ -372,13 +415,16 @@ const CanvasExport = (() => {
       shapes.push(...guideLabels);
     }
 
+    const orientedTree = layout.options.rootId && hierarchy.parent.has(layout.options.rootId)
+      ? CanvasLayout.orient(current.nodes, hierarchy, layout.options.rootId)
+      : hierarchy;
     const labels = [];
     for (const edge of current.edges) {
       const from = rects.get(edge.from);
       const to = rects.get(edge.to);
       if (!from || !to) continue;
       const style = edgeStyle(edge);
-      const curve = branchEdgeCurve(edge, from, to, rects, hierarchy, layout.options, style.shape);
+      const curve = branchEdgeCurve(edge, from, to, rects, orientedTree, layout.options, style.shape);
       shapes.push({
         type: 'path', d: curve.path, color: color(style.color, '#64748b'), width: style.width,
         dash: lineDashes[style.dash] || null, round: style.dash === 'dotted',
@@ -401,12 +447,14 @@ const CanvasExport = (() => {
     shapes.push(...labels);
     const hadOverview = viewport.classList.contains('is-overview');
     const hadZoomedOut = viewport.classList.contains('is-zoomed-out');
-    viewport.classList.remove('is-overview', 'is-zoomed-out');
+    const hadFar = viewport.classList.contains('is-far');
+    viewport.classList.remove('is-overview', 'is-zoomed-out', 'is-far');
     try {
       for (const node of nodes) cardShapes(node, cardIndex.get(node.id), shapes);
     } finally {
       viewport.classList.toggle('is-overview', hadOverview);
       viewport.classList.toggle('is-zoomed-out', hadZoomedOut);
+      viewport.classList.toggle('is-far', hadFar);
     }
 
     const left = Math.min(...boxes.map(box => box.x)) - padding;

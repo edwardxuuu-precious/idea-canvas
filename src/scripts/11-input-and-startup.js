@@ -44,6 +44,7 @@ function beginPointer(event) {
     return;
   }
   if (event.button === 2) return;
+  hideGlancePreview();
   if (mode === 'link') {
     gesture = { ...base, kind: 'link-tap', id: cardId };
     event.preventDefault();
@@ -53,7 +54,7 @@ function beginPointer(event) {
   if (frameResizeId) {
     CanvasInspector.close();
     const frame = CanvasViews.selectFrame(frameResizeId);
-    const startBox = frame ? CanvasViews.frameRect(frame) : null;
+    const startBox = frame ? CanvasViews.frameRect(frame, null, visibility.hidden) : null;
     if (!frame || !startBox) return;
     gesture = { ...base, kind: 'frame-resize', frameId: frameResizeId, startBox };
     event.preventDefault();
@@ -64,7 +65,7 @@ function beginPointer(event) {
     CanvasInspector.close();
     const frame = CanvasViews.selectFrame(frameId);
     if (!frame) return;
-    const fullBox = CanvasViews.frameRect(frame);
+    const fullBox = CanvasViews.frameRect(frame, null, visibility.hidden);
     gesture = {
       ...base, kind: 'drag', keepGroup: true, frame: frameId,
       startBox: fullBox ? { ...fullBox } : (frame.box ? { ...frame.box } : null),
@@ -97,7 +98,7 @@ function beginPointer(event) {
       setSelected([cardId]);
     }
     const { layout, guides, statuses } = board().settings;
-    const matrix = CanvasLayout.matrixTracks(layout, guides, statuses);
+    const matrix = CanvasViews.isFocused() ? null : CanvasLayout.matrixTracks(layout, guides, statuses);
     gesture = {
       ...base, kind: 'drag', id: cardId, keepGroup: event.shiftKey,
       nodes: new Map(noteIds().map(id => [id, nodeBy(id)])),
@@ -248,6 +249,8 @@ function movePointer(event) {
   if (gesture?.kind === 'pinch') {
     const fingers = [...touches.values()].slice(0, 2);
     if (fingers.length < 2) return;
+    closeSelectionSubPopovers();
+    hideGlancePreview();
     const distance = Math.hypot(fingers[1].x - fingers[0].x, fingers[1].y - fingers[0].y);
     zoomTo(gesture.scale * distance / gesture.distance, midpoint(...fingers), gesture.anchor);
     return;
@@ -264,6 +267,8 @@ function movePointer(event) {
   if (!active.moved) {
     active.moved = true;
     viewport.setPointerCapture(event.pointerId);
+    closeSelectionSubPopovers();
+    hideGlancePreview();
     paintMode();
   }
   if (active.kind === 'pan') {
@@ -435,14 +440,18 @@ function endPointer(event) {
       checkpoint();
       frame.box = active.nextBox;
       const existingHiddenMembers = new Set(frame.members.filter(id => visibility.hidden.has(id)));
+      const foldedSet = new Set(board().settings.folded);
+      const foldedHidden = CanvasLayout.foldedDescendants(hierarchy, board().settings.folded);
       frame.members = board().nodes.filter(node => {
         let targetNode = node;
         if (visibility.hidden.has(node.id)) {
           if (!existingHiddenMembers.has(node.id)) return false;
+          if (!foldedHidden.has(node.id)) return true;
           let anc = hierarchy.parent.get(node.id);
           while (anc && visibility.hidden.has(anc)) anc = hierarchy.parent.get(anc);
-          targetNode = anc ? nodeBy(anc) : null;
-          if (!targetNode) return false;
+          if (!anc || !foldedSet.has(anc)) return true;
+          targetNode = nodeBy(anc);
+          if (!targetNode) return true;
         }
         const rect = cardRect(targetNode);
         const cx = rect.x + rect.w / 2;
@@ -480,7 +489,7 @@ function endPointer(event) {
       }
     }
     const preDragBoxes = active.kind === 'drag' && !active.frame && active.moved && board().settings.frames.length
-      ? new Map(board().settings.frames.map(frame => [frame.id, CanvasViews.frameRect(frame)]))
+      ? new Map(board().settings.frames.map(frame => [frame.id, CanvasViews.frameRect(frame, null, visibility.hidden)]))
       : null;
     checkpoint();
     for (const [id, update] of active.positions) Object.assign(nodeBy(id), update);
@@ -671,13 +680,14 @@ const action = {
   'close-note': finishNote,
   'close-text': () => textDialog.close(),
   'close-lightbox': () => lightboxDialog.close(),
-  help: () => helpDialog.showModal(),
+  help: () => { hideGlancePreview(); helpDialog.showModal(); },
   'close-help': () => helpDialog.close(),
 };
 
 const layoutSafeActions = new Set(['arrange', 'fit', 'zoom-in', 'zoom-out', 'zoom-reset', 'toggle-map']);
 
 function runAction(name, run = action[name]) {
+  hideGlancePreview();
   if (inlineEdit && name !== 'undo' && name !== 'redo' && name !== 'new-card') finishInline({ keepFocus: true });
   if (layoutDraft && !layoutSafeActions.has(name)) cancelLayout();
   if (openPopover && !['boards', 'files', 'search'].includes(name)) closePopover();
@@ -781,9 +791,15 @@ function openContextMenu(event) {
     const edge = edgeBy(edgeId);
     addContextItem('编辑连线说明', () => openText('edge', edge.label, edge.id));
     const currentStyle = edgeStyle(edge);
+    const nextDash = currentStyle.dash === 'dashed' ? 'solid' : 'dashed';
     addContextItem(currentStyle.dash === 'dashed' ? '切换为实线' : '切换为虚线', () => {
       applyChange(() => {
-        edge.style = { ...edge.style, dash: currentStyle.dash === 'dashed' ? 'solid' : 'dashed' };
+        const inheritedDash = edgeStyle({ ...edge, style: undefined }).dash;
+        const next = { ...edge.style };
+        if (nextDash === inheritedDash) delete next.dash;
+        else next.dash = nextDash;
+        if (Object.keys(next).length) edge.style = next;
+        else delete edge.style;
       });
     });
     addContextItem('调整连线样式', () => CanvasInspector.open(edge.kind === 'branch' ? 'branch' : 'link'));
@@ -810,6 +826,9 @@ function openContextMenu(event) {
     }
   }
 
+  hideGlancePreview();
+  contextMenu.style.left = '0px';
+  contextMenu.style.top = '0px';
   contextMenu.hidden = false;
   const menuRect = contextMenu.getBoundingClientRect();
   const x = Math.min(event.clientX, window.innerWidth - menuRect.width - 10);
@@ -873,10 +892,11 @@ viewport.addEventListener('pointerover', event => {
     updateHoverHighlight();
     return;
   }
+  const delay = camera.scale < .6 && glancePreviewId ? 40 : 140;
   hoverFocusTimer = setTimeout(() => {
     hoveredCardId = id;
     updateHoverHighlight();
-  }, 160);
+  }, delay);
 });
 viewport.addEventListener('pointerout', event => {
   const next = event.relatedTarget?.closest?.('[data-card]')?.dataset.card || null;
@@ -917,6 +937,7 @@ viewport.addEventListener('click', event => {
   const doneToggle = event.target.closest('[data-done-toggle]');
   if (doneToggle && !layoutDraft) {
     doneToggle.closest('.card').toggleAttribute('data-show-done');
+    focusCanvas();
     return;
   }
   const sourcesBtn = event.target.closest('[data-card-sources]');
@@ -954,6 +975,8 @@ viewport.addEventListener('dblclick', event => {
 viewport.addEventListener('wheel', event => {
   event.preventDefault();
   if (gesture) return;
+  closeSelectionSubPopovers();
+  hideGlancePreview();
   cancelCameraAnimation();
   const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
   if (event.ctrlKey || event.metaKey) {
@@ -968,6 +991,8 @@ viewport.addEventListener('wheel', event => {
 let nativeGesture = null;
 viewport.addEventListener('gesturestart', event => {
   event.preventDefault();
+  closeSelectionSubPopovers();
+  hideGlancePreview();
   cancelCameraAnimation();
   const { width, height } = viewportSize();
   const local = Number.isFinite(event.clientX) && Number.isFinite(event.clientY) ? point(event) : { x: width / 2, y: height / 2 };
@@ -1063,6 +1088,18 @@ document.addEventListener('keydown', event => {
     focusCanvas();
     return;
   }
+  if (key === 'escape' && !$('#inspector-panel').hidden) {
+    event.preventDefault();
+    CanvasInspector.close();
+    focusCanvas();
+    return;
+  }
+  if (key === 'escape' && !$('#views-panel').hidden) {
+    event.preventDefault();
+    CanvasViews.close();
+    focusCanvas();
+    return;
+  }
   if (layoutDraft || isTextInputEl(event.target)) return;
   if (mod) {
     if (key === 'z') {
@@ -1148,8 +1185,18 @@ window.addEventListener('blur', () => {
   touches.clear();
   cancelGesture();
   releaseSpace();
+  clearTimeout(hoverFocusTimer);
+  if (hoveredCardId) {
+    hoveredCardId = null;
+    updateHoverHighlight();
+  }
+  hideGlancePreview();
 });
-window.addEventListener('resize', paintView);
+window.addEventListener('resize', () => {
+  closeSelectionSubPopovers();
+  hideGlancePreview();
+  paintView();
+});
 window.addEventListener('pagehide', () => {
   if (inlineEdit) syncInline();
   save();

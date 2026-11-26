@@ -344,38 +344,46 @@ test('CanvasExport includes matrix, timeline, and fishbone guides in full-board 
       dataset: { profile: 'title', tone: n.tone },
       offsetWidth: n.w,
       offsetHeight: n.h,
+      hasAttribute: () => false,
       getBoundingClientRect: () => ({ left: 0, top: 0, width: n.w, height: n.h }),
       querySelector: () => null,
     },
     status: { hidden: true },
     title: { hidden: false, textContent: n.title, offsetLeft: 12, offsetTop: 12, offsetWidth: 160, offsetHeight: 24, offsetParent: null },
     body: { hidden: true, childNodes: [], querySelector: () => null, querySelectorAll: () => [] },
+    doneToggle: { hidden: true, textContent: '', offsetLeft: 12, offsetTop: 48, offsetWidth: 120, offsetHeight: 18, offsetParent: null },
     meta: { hidden: true, children: [] },
     cover: { hidden: true, querySelector: () => null },
   });
   const cardIndex = new Map(nodes.map((n) => [n.id, makeCardView(n)]));
-  for (const v of cardIndex.values()) v.title.offsetParent = v.element;
+  for (const v of cardIndex.values()) {
+    v.title.offsetParent = v.element;
+    v.doneToggle.offsetParent = v.element;
+  }
 
+  let focused = false;
   const { CanvasExport } = new Function(
     'document', 'getComputedStyle', 'viewport', 'board', 'displayedLayout', 'visibility', 'cardRect',
     'boundsOf', 'CanvasViews', 'CanvasLayout', 'matrixTrackAt', 'hierarchy', 'edgeStyle', 'branchEdgeCurve',
-    'lineDashes', 'cardIndex', 'titleOf',
+    'lineDashes', 'cardIndex', 'titleOf', 'clamp',
     `${canvasExportSrc}\nreturn { CanvasExport };`,
   )(
     fakeDoc,
-    () => ({
-      fontFamily: 'sans-serif', fontStyle: 'normal', fontWeight: '600', fontSize: '14px', lineHeight: '20px',
-      color: '#0f172a', backgroundColor: '#ffffff', backgroundImage: 'none', borderTopColor: '#e2e8f0',
-      borderTopLeftRadius: '12px', borderTopWidth: '1px', paddingBottom: '12px', paddingLeft: '7px',
-      getPropertyValue: (k) => ({ '--ink': '#0f172a', '--ink-soft': '#475569', '--paper': '#ffffff', '--line': '#e2e8f0', '--board-accent': '#0f766e', '--guide-ink': '#0f766e' }[k] || ''),
-    }),
+    (_el, pseudo) => pseudo === '::before'
+      ? { content: '""', display: 'block', width: '3px', top: '12px', bottom: '12px', backgroundColor: '#0f766e' }
+      : {
+        fontFamily: 'sans-serif', fontStyle: 'normal', fontWeight: '600', fontSize: '14px', lineHeight: '20px',
+        color: '#0f172a', backgroundColor: 'color(srgb 0.934 0.962 0.96)', backgroundImage: 'none', borderTopColor: '#e2e8f0',
+        borderTopLeftRadius: '12px', borderTopWidth: '1px', paddingBottom: '12px', paddingLeft: '7px', display: 'inline-flex', opacity: '0.82',
+        getPropertyValue: (k) => ({ '--ink': '#0f172a', '--ink-soft': '#475569', '--paper': '#ffffff', '--line': '#e2e8f0', '--board-accent': '#0f766e', '--guide-ink': '#0f766e' }[k] || ''),
+      },
     fakeViewport,
     () => currentBoard,
     () => currentLayout,
     { hidden: new Set(), dimmed: new Set() },
     (n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }),
     (rects) => ({ left: Math.min(...rects.map((r) => r.x)), top: Math.min(...rects.map((r) => r.y)), right: Math.max(...rects.map((r) => r.x + r.w)), bottom: Math.max(...rects.map((r) => r.y + r.h)), w: 100, h: 100 }),
-    { frameRect: () => null },
+    { frameRect: () => null, isFocused: () => focused },
     CanvasLayout,
     (tracks, value) => tracks.find((t) => value >= t.start && value < t.end),
     CanvasLayout.tree(nodes, edges),
@@ -384,6 +392,7 @@ test('CanvasExport includes matrix, timeline, and fishbone guides in full-board 
     { dashed: '7 5', dotted: '1 5' },
     cardIndex,
     (n) => n.title,
+    (value, low, high) => Math.max(low, Math.min(high, value)),
   );
 
   for (const mode of ['matrix', 'timeline', 'fishbone']) {
@@ -395,6 +404,10 @@ test('CanvasExport includes matrix, timeline, and fishbone guides in full-board 
 
     const fullScene = CanvasExport.scene(null);
     const fullSvg = CanvasExport.toSVG(fullScene);
+    // color(srgb ...) must be normalized to SVG 1.1 rgb(...) and 3px left bar must be emitted
+    expect(fullSvg).not.toContain('color(srgb');
+    expect(fullSvg).toContain('rgb(238, 245, 245)');
+    expect(fullScene.shapes.some((s) => s.type === 'rect' && s.w === 3 && s.fill === '#0f766e')).toBe(true);
     const guideLines = fullScene.shapes.filter((s) => s.type === 'path' && s.opacity === 0.42);
     expect(guideLines.length).toBe(computed.guides.filter((g) => g.kind === 'line').length);
     if (mode === 'matrix') {
@@ -410,7 +423,18 @@ test('CanvasExport includes matrix, timeline, and fishbone guides in full-board 
     }
     const singleScene = CanvasExport.scene(['a']);
     expect(singleScene.shapes.some((s) => s.type === 'path' && s.opacity === 0.42)).toBe(false);
+    focused = true;
+    const focusedScene = CanvasExport.scene(null);
+    expect(focusedScene.shapes.some((s) => s.type === 'path' && s.opacity === 0.42)).toBe(false);
+    focused = false;
   }
+
+  // Visible .done-toggle renders into SVG export
+  cardIndex.get('a').doneToggle.hidden = false;
+  cardIndex.get('a').doneToggle.textContent = '已完成 2 项';
+  const doneSvg = CanvasExport.toSVG(CanvasExport.scene(['a']));
+  expect(doneSvg).toContain('▸ 已完成 2 项');
+  cardIndex.get('a').doneToggle.hidden = true;
 });
 
 function rectsOverlap(a, b) {
@@ -640,6 +664,85 @@ test('routedBranchCurve routes around column-1 cards without entering them on bo
   const timelineCurve = branchEdgeCurve(edgeCol2, rootRight, rightRects[5], rectMap, tree6H, { mode: 'timeline', nodeGap: 24 }, 'curve');
   expect(timelineCurve.path).not.toContain(' Q ');
   expect(timelineCurve.path).toContain(' C ');
-  const linkEdgeCurve = branchEdgeCurve({ ...edgeCol2, kind: 'link' }, rootRight, rightRects[5], rectMap, tree6H, { mode: 'right', nodeGap: 24 }, 'curve');
-  expect(linkEdgeCurve.path).toContain(' C ');
+  const linkTreeCurve = branchEdgeCurve({ ...edgeCol2, kind: 'link' }, rootRight, rightRects[5], rectMap, tree6H, { mode: 'right', nodeGap: 24 }, 'curve');
+  expect(linkTreeCurve.path).toContain(' Q ');
+  const crossLinkCurve = branchEdgeCurve({ id: 'x', from: 'c0', to: 'c5', kind: 'link' }, rightRects[1], rightRects[6], rectMap, tree6H, { mode: 'right', nodeGap: 24 }, 'curve');
+  expect(crossLinkCurve.path).toContain(' C ');
+
+  // Re-rooted non-root layout.rootId: reversed edge (child -> parent in original edges) must route cleanly with swapped normals
+  const rerootNodes = [
+    { id: 'orig', x: 0, y: 0, w: 200, h: 80, tone: 'idea', order: 0 },
+    { id: 'hub', x: 0, y: 0, w: 200, h: 100, tone: 'topic', order: 1 },
+    ...Array.from({ length: 5 }, (_, i) => ({ id: `k${i}`, x: 0, y: 0, w: 200, h: 80, tone: 'idea', order: i + 2 })),
+  ];
+  const rerootEdges = [
+    { id: 'e-orig', from: 'orig', to: 'hub', kind: 'branch', label: '' },
+    ...Array.from({ length: 5 }, (_, i) => ({ id: `ek${i}`, from: 'hub', to: `k${i}`, kind: 'branch', label: '' })),
+  ];
+  const rawTree = CanvasLayout.tree(rerootNodes, rerootEdges);
+  const oriented = CanvasLayout.orient(rerootNodes, rawTree, 'hub');
+  expect(oriented.parent.get('orig')).toBe('hub');
+  const rerootRes = CanvasLayout.compute(rerootNodes, rerootEdges, { mode: 'right', nodeGap: 24, levelGap: 76, rootId: 'hub' });
+  const rerootPlaced = rerootNodes.map((n) => ({ ...n, ...rerootRes.positions.get(n.id) }));
+  const rerootMap = new Map(rerootPlaced.map((n) => [n.id, n]));
+  const col2Ids = oriented.children.get('hub').slice(3);
+  const col1Blockers = oriented.children.get('hub').slice(0, 3).map((id) => rerootMap.get(id));
+  for (const id of col2Ids) {
+    const edge = rerootEdges.find((e) => e.from === id || e.to === id);
+    const curve = branchEdgeCurve(edge, rerootMap.get(edge.from), rerootMap.get(edge.to), rerootMap, oriented, { mode: 'right', nodeGap: 24 }, 'curve');
+    expect(curve.path).toContain(' Q ');
+    for (const pt of sampleSvgPath(curve.path)) {
+      for (const blocker of col1Blockers) expect(pointInRect(pt, blocker)).toBe(false);
+    }
+  }
+});
+
+test('CanvasLayout.avoidFixed preserves sibling order and avoids float-drift teleportation in compact density', () => {
+  const nodes = [
+    { id: 'root', x: 0, y: 10.1, w: 200, h: 100, tone: 'topic', order: 0 },
+    { id: 'c1', x: 280, y: 0, w: 200, h: 100, tone: 'idea', order: 1 },
+    { id: 'c2', x: 280, y: 120, w: 200, h: 100, tone: 'idea', order: 2 },
+    { id: 'c3', x: 280, y: 240, w: 200, h: 100, tone: 'idea', order: 3 },
+    { id: 'pin', x: 5000, y: 5000, w: 180, h: 80, tone: 'action', pinned: true, order: 4 },
+  ];
+  const edges = [
+    { id: 'e1', from: 'root', to: 'c1', kind: 'branch', label: '' },
+    { id: 'e2', from: 'root', to: 'c2', kind: 'branch', label: '' },
+    { id: 'e3', from: 'root', to: 'c3', kind: 'branch', label: '' },
+  ];
+  const compact = CanvasLayout.compute(nodes, edges, { mode: 'right', nodeGap: 12, levelGap: 40, rootId: 'root' });
+  expect(compact.positions.get('c1').y).toBeLessThan(compact.positions.get('c2').y);
+  expect(compact.positions.get('c2').y).toBeLessThan(compact.positions.get('c3').y);
+
+  const blockerNodes = [
+    { id: 'root', x: 0, y: 0, w: 200, h: 100, tone: 'topic', order: 0 },
+    { id: 'c1', x: 276, y: 0, w: 200, h: 100, tone: 'idea', order: 1 },
+    { id: 'c2', x: 276, y: 124, w: 200, h: 100, tone: 'idea', order: 2 },
+    { id: 'c3', x: 276, y: 248, w: 200, h: 100, tone: 'idea', order: 3 },
+    { id: 'pin', x: 276, y: -120, w: 200, h: 100, tone: 'action', pinned: true, order: 4 },
+  ];
+  const standard = CanvasLayout.compute(blockerNodes, edges, { mode: 'right', nodeGap: 24, levelGap: 76, rootId: 'root' });
+  expect(standard.positions.get('c1').y).toBeLessThan(standard.positions.get('c2').y);
+  expect(standard.positions.get('c2').y).toBeLessThan(standard.positions.get('c3').y);
+  assertNoOverlaps(blockerNodes.map((n) => ({ ...n, ...standard.positions.get(n.id) })));
+});
+
+test('CanvasData.parse breaks multi-board parentId cycles and bundled HTML keeps a single LOCAL_CANVAS_SYNC marker', () => {
+  const cyclic = {
+    version: 3,
+    activeId: 'b1',
+    boards: [
+      { id: 'b1', name: 'A', view: null, nodes: [], edges: [], settings: { parentId: 'b2' } },
+      { id: 'b2', name: 'B', view: null, nodes: [], edges: [], settings: { parentId: 'b1' } },
+    ],
+    themes: [],
+  };
+  const parsed = CanvasData.parse(JSON.stringify(cyclic));
+  const p1 = parsed.boards[0].settings.parentId;
+  const p2 = parsed.boards[1].settings.parentId;
+  expect(p1 === null || p2 === null).toBe(true);
+
+  const bundled = fs.readFileSync(fileURLToPath(new URL('../想法画布.html', import.meta.url)), 'utf8');
+  const markers = bundled.match(/<!-- LOCAL_CANVAS_SYNC -->/g) || [];
+  expect(markers.length).toBe(1);
 });

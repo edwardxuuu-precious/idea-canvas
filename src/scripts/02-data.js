@@ -248,6 +248,7 @@ const CanvasData = (() => {
       return parsed;
     });
     requireValue(boardIds.has(value.activeId), '当前画布在文件中不存在。');
+    const boardById = new Map(boards.map(item => [item.id, item]));
     for (const item of boards) {
       if (item.settings.parentId && (!boardIds.has(item.settings.parentId) || item.settings.parentId === item.id)) {
         item.settings.parentId = null;
@@ -256,6 +257,19 @@ const CanvasData = (() => {
         if (node.subBoardId && (!boardIds.has(node.subBoardId) || node.subBoardId === item.id)) {
           delete node.subBoardId;
         }
+      }
+    }
+    for (const item of boards) {
+      const trail = new Set([item.id]);
+      let cursor = item;
+      while (cursor.settings.parentId) {
+        const next = boardById.get(cursor.settings.parentId);
+        if (!next || trail.has(next.id)) {
+          cursor.settings.parentId = null;
+          break;
+        }
+        trail.add(next.id);
+        cursor = next;
       }
     }
     const themes = records(value.themes, (item, name) => name && { id: item.id, name, appearance: appearance(item.appearance) });

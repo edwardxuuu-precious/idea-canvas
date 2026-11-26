@@ -168,6 +168,7 @@ function openNote(node, isNew = false, parent = null) {
   closeSelectionSubPopovers();
   closeSourcePopover();
   closeContextMenu();
+  hideGlancePreview();
   modalNote = { node, isNew, parent, tone: node.tone, checkpointed: false, bodyChanged: false, imageJob: null };
   $('#note-heading').textContent = isNew ? (parent ? '新建分支' : '新建卡片') : '编辑卡片';
   noteTitle.value = node.title;
@@ -220,6 +221,7 @@ function syncNote() {
       addEdge(parent.id, node.id, 'branch');
       board().settings.folded = board().settings.folded.filter(id => id !== parent.id);
     }
+    CanvasViews.ensureVisible([node.id]);
     modalNote.isNew = false;
     selection = { kind: 'cards', ids: new Set([node.id]) };
   }
@@ -581,7 +583,8 @@ function handleChecklistClickInEditor(event, container, editCallback) {
   const li = event.target.closest?.('li[data-done]');
   if (!li || !container.contains(li)) return;
   const rect = li.getBoundingClientRect();
-  if (event.clientX - rect.left <= 22) {
+  const scale = container.closest('#world') ? camera.scale : 1;
+  if (event.clientX - rect.left <= 22 * scale) {
     event.preventDefault();
     li.setAttribute('data-done', li.getAttribute('data-done') === 'true' ? 'false' : 'true');
     editCallback();
@@ -614,6 +617,7 @@ function syncInline() {
     }
     inlineEdit.isNew = false;
     selection = { kind: 'cards', ids: new Set([node.id]) };
+    if (CanvasViews.ensureVisible([node.id])) render();
   }
   queueSave();
 }
@@ -673,10 +677,12 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
   closeSelectionSubPopovers();
   closeSourcePopover();
   closeContextMenu();
+  hideGlancePreview();
   if (isNew) {
     if (!board().nodes.includes(node) && !cardIndex.has(node.id)) {
       const createdView = createCardView(node.id);
       createdView.element.dataset.tone = node.tone;
+      createdView.element.dataset.depth = parent ? String(Math.min((nodeDepths.get(parent.id) ?? 0) + 1, 3)) : '0';
       createdView.element.dataset.profile = 'note';
       placeCard(createdView.element, node);
     }
@@ -943,6 +949,7 @@ function duplicateSelected() {
   checkpoint();
   board().nodes.push(...copied);
   board().edges.push(...links);
+  CanvasViews.ensureVisible([...ids.values()]);
   selection = { kind: 'cards', ids: new Set(ids.values()) };
   reveal(copied[0]);
   render();
@@ -954,6 +961,8 @@ function removeSelected() {
   const ids = new Set(noteIds());
   const edge = chosenEdge();
   if (!ids.size && !edge) return;
+  hoveredCardId = null;
+  hideGlancePreview();
   checkpoint();
   board().nodes = board().nodes.filter(node => !ids.has(node.id));
   board().edges = board().edges.filter(link => link.id !== edge?.id && !ids.has(link.from) && !ids.has(link.to));
@@ -971,6 +980,7 @@ function removeSelected() {
 
 function openText(kind, initial = '', id = null, triggerKey = null) {
   closePopover();
+  hideGlancePreview();
   modalText = { kind, id };
   const wording = {
     'board-new': ['新建空白画布', '画布名称', '给这张画布起个名字'],
@@ -1016,6 +1026,8 @@ function switchBoard(id) {
   cancelPositionAnimation();
   closeContextMenu();
   closeSelectionSubPopovers();
+  hoveredCardId = null;
+  hideGlancePreview();
   if (gesture) cancelGesture();
   if (layoutDraft) cancelLayout();
   CanvasViews.reset();
@@ -1101,6 +1113,7 @@ function closePopover() {
 function togglePopover(key, forceOpen = false) {
   const previous = openPopover;
   closePopover();
+  hideGlancePreview();
   if (previous === key && !forceOpen) return;
   const { panel, toggle } = popovers[key];
   openPopover = key;
@@ -1372,6 +1385,7 @@ function goToMatch(index) {
     runAction(entry.command.id, entry.command.run);
     return;
   }
+  if (layoutDraft) cancelLayout();
   setMode('select');
   if (entry.kind === 'board') {
     if (entry.board.id !== workspace.activeId) switchBoard(entry.board.id);

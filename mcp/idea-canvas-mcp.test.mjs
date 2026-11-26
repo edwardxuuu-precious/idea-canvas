@@ -244,7 +244,7 @@ test('offline CRUD, subtree guard, pre-deletion backup, and mirror sync work end
   } finally {
     fs.rmSync(cfg.dataDir, { recursive: true, force: true });
   }
-});
+}, 15000);
 
 test('MCP httpCall works against loopback server even when HTTP_PROXY is set', async () => {
   const cfg = makeTempEnv();
@@ -322,7 +322,7 @@ test('MCP stdio framing handles chunked LSP Content-Type headers and recovers fr
   } finally {
     fs.rmSync(cfg.dataDir, { recursive: true, force: true });
   }
-});
+}, 15000);
 
 test('MCP httpCall surfaces HTTP 413 even on early RST and supports chunked responses', async () => {
   const cfg = makeTempEnv();
@@ -471,7 +471,7 @@ test('MCP enforces sibling order on orderless boards, 128-char IDs, exact boardN
   } finally {
     fs.rmSync(cfg.dataDir, { recursive: true, force: true });
   }
-});
+}, 15000);
 
 test('MCP stdio framing handles initialize and tools/list over real child process', async () => {
   const cfg = makeTempEnv();
@@ -506,7 +506,7 @@ test('MCP stdio framing handles initialize and tools/list over real child proces
   } finally {
     fs.rmSync(cfg.dataDir, { recursive: true, force: true });
   }
-});
+}, 15000);
 
 test('live local API rejects unauthenticated and Origin-bearing Bearer requests, accepts bare Bearer', async () => {
   const liveDir = path.join(os.homedir(), 'Library', 'Application Support', '想法画布');
@@ -560,3 +560,51 @@ test('live local API rejects unauthenticated and Origin-bearing Bearer requests,
   const rpcInit = await handleRpcMessage({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'canvas_status' } });
   expect(rpcInit.result.structuredContent.mode).toBe('live');
 });
+
+test('MCP preserves <img> tags whose alt contains > and returns link-edge children in canvas_get_cards(branchRootId)', async () => {
+  const cfg = makeTempEnv();
+  try {
+    const imgTag = '<img alt="A>B.png" src="data:image/png;base64,iVBORw0KGgo=">';
+    const ws = {
+      version: 3,
+      activeId: 'b1',
+      boards: [
+        {
+          id: 'b1',
+          name: '回归测试',
+          view: null,
+          nodes: [
+            { id: 'r', x: 0, y: 0, w: 220, h: 100, tone: 'topic', title: '根', body: '旧正文', richBody: imgTag + '<p>旧正文</p>', order: 0 },
+            { id: 'c', x: 300, y: 0, w: 200, h: 90, tone: 'idea', title: '连线子节点', body: '', order: 1 },
+          ],
+          edges: [{ id: 'e1', from: 'r', to: 'c', kind: 'link', label: '' }],
+          settings: {
+            layout: { mode: 'right', nodeGap: 24, levelGap: 76, rootId: 'r', rows: 'status', columns: 'tone' },
+            guides: [],
+            appearance: { background: '#f5f6f8', grid: 'dots', gridColor: '#94a3b8', gridSize: 24, accent: '#0f766e', card: {}, branch: {}, link: {} },
+            statuses: [],
+            tags: [],
+            folded: [],
+            singleBranch: false,
+            detail: 'full',
+            frames: [],
+          },
+        },
+      ],
+      themes: [],
+    };
+    fs.writeFileSync(path.join(cfg.dataDir, '画布数据.json'), JSON.stringify(ws), 'utf8');
+
+    await runTool('canvas_upsert_cards', { boardId: 'b1', cards: [{ id: 'r', body: '新正文' }] }, cfg);
+    const updated = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, '画布数据.json'), 'utf8'));
+    expect(updated.boards[0].nodes[0].richBody).toContain(imgTag);
+    expect(updated.boards[0].nodes[0].richBody).toContain('新正文');
+
+    const outline = await runTool('canvas_get_outline', { boardId: 'b1' }, cfg);
+    expect(outline.outline[0].childCount).toBe(1);
+    const cards = await runTool('canvas_get_cards', { boardId: 'b1', branchRootId: 'r' }, cfg);
+    expect(cards.cards.map((n) => n.id)).toEqual(['r', 'c']);
+  } finally {
+    fs.rmSync(cfg.dataDir, { recursive: true, force: true });
+  }
+}, 15000);

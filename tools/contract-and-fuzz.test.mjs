@@ -114,7 +114,7 @@ struct ContractDriver {
     ],
     { stdio: 'pipe' },
   );
-});
+}, 30000);
 
 afterAll(() => {
   if (harnessDir) fs.rmSync(harnessDir, { recursive: true, force: true });

@@ -232,11 +232,19 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const tagMap = new Map(current.settings.tags.map(t => [t.id, t]));
   const linkedSubBoards = new Set(workspace.boards.flatMap(b => b.nodes.map(n => n.subBoardId).filter(Boolean)));
   const existingBoards = new Map(workspace.boards.map(b => [b.id, b]));
+  const ancestors = new Set([current.id]);
+  for (let parentId = current.settings?.parentId; parentId && !ancestors.has(parentId); ) {
+    ancestors.add(parentId);
+    parentId = existingBoards.get(parentId)?.settings?.parentId;
+  }
   const box = boundsOf(payload.nodes);
   const centerX = box ? (box.left + box.right) / 2 : 0;
   const centerY = box ? (box.top + box.bottom) / 2 : 0;
   const idMap = new Map(payload.nodes.map(n => [n.id, CanvasData.uid()]));
-  checkpoint();
+  const willRebindSubBoard = payload.nodes.some(n =>
+    n.subBoardId && existingBoards.has(n.subBoardId) && !ancestors.has(n.subBoardId) && !linkedSubBoards.has(n.subBoardId)
+  );
+  checkpoint(false, false, willRebindSubBoard);
   for (const st of payload.statuses || []) {
     if (!statusMap.has(st.id)) current.settings.statuses.push(structuredClone(st));
   }
@@ -247,7 +255,7 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
     const copy = structuredClone(n);
     copy.id = idMap.get(n.id);
     if (copy.subBoardId) {
-      if (!existingBoards.has(copy.subBoardId) || copy.subBoardId === current.id || linkedSubBoards.has(copy.subBoardId)) {
+      if (!existingBoards.has(copy.subBoardId) || ancestors.has(copy.subBoardId) || linkedSubBoards.has(copy.subBoardId)) {
         delete copy.subBoardId;
       } else {
         existingBoards.get(copy.subBoardId).settings.parentId = current.id;
@@ -262,10 +270,11 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   }));
   current.nodes.push(...inserted);
   current.edges.push(...edges);
+  const viewChanged = CanvasViews.ensureVisible(inserted.map(n => n.id));
   selection = { kind: 'cards', ids: new Set(inserted.map(n => n.id)) };
   render();
   save();
-  toast(`已粘贴 ${inserted.length} 张卡片`);
+  if (!viewChanged) toast(`已粘贴 ${inserted.length} 张卡片`);
 }
 
 async function handleCanvasPaste(clipboardData) {
@@ -284,11 +293,13 @@ async function handleCanvasPaste(clipboardData) {
       const clean = richContent(img.outerHTML);
       node.body = clean.text;
       node.richBody = clean.html;
+      let viewChanged = false;
       applyChange(() => {
         board().nodes.push(node);
+        viewChanged = CanvasViews.ensureVisible([node.id]);
         selection = { kind: 'cards', ids: new Set([node.id]) };
       });
-      toast('已从剪贴板新建图片卡片');
+      if (!viewChanged) toast('已从剪贴板新建图片卡片');
     } catch (error) {
       toast(error.message || '无法读取剪贴板图片', 'error');
     }
@@ -320,12 +331,14 @@ async function handleCanvasPaste(clipboardData) {
       n.x = coordinate(n.x + ox);
       n.y = coordinate(n.y + oy);
     }
+    let viewChanged = false;
     applyChange(() => {
       board().nodes.push(...tree.nodes);
       board().edges.push(...tree.edges);
+      viewChanged = CanvasViews.ensureVisible(tree.nodes.map(n => n.id));
       selection = { kind: 'cards', ids: new Set(tree.nodes.map(n => n.id)) };
     });
-    toast(`已自动解析 Markdown 生成 ${tree.nodes.length} 张卡片导图`);
+    if (!viewChanged) toast(`已自动解析 Markdown 生成 ${tree.nodes.length} 张卡片导图`);
     return;
   }
   const safeUrl = safeExternalUrl(text.trim());
@@ -339,11 +352,13 @@ async function handleCanvasPaste(clipboardData) {
     node.title = sliceChars(lines[0], 80);
     node.body = lines.length > 1 ? lines.slice(1).join('\n') : ([...lines[0]].length > 80 ? lines[0] : '');
   }
+  let viewChanged = false;
   applyChange(() => {
     board().nodes.push(node);
+    viewChanged = CanvasViews.ensureVisible([node.id]);
     selection = { kind: 'cards', ids: new Set([node.id]) };
   });
-  toast('已粘贴新建卡片');
+  if (!viewChanged) toast('已粘贴新建卡片');
 }
 
 function selectionToMarkdownFromPayload(payload) {
@@ -451,6 +466,7 @@ function extractToSubBoard() {
     current.settings.folded = current.settings.folded.filter(id => !movedSet.has(id));
     for (const frame of current.settings.frames) frame.members = frame.members.filter(id => !movedSet.has(id));
     if (movedSet.has(current.settings.layout.rootId)) current.settings.layout.rootId = null;
+    CanvasViews.ensureVisible([portal.id]);
     selection = { kind: 'cards', ids: new Set([portal.id]) };
   }
   current.settings.frames = current.settings.frames.filter(frame => frame.members.length || frame.box);
@@ -460,6 +476,7 @@ function extractToSubBoard() {
 }
 
 function openLightbox(src, alt) {
+  hideGlancePreview();
   lightboxScale = 1;
   lightboxImage.src = src;
   lightboxImage.alt = alt || '图片预览';

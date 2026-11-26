@@ -151,6 +151,7 @@ svg { display: block; }
   background: var(--glass); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--border-subtle); border-radius: 14px; box-shadow: var(--shadow-island);
 }
+.popover:not(.search-panel):not(.card-source-popover) { max-height: calc(100dvh - var(--chrome-top) - 62px); overflow-y: auto; overscroll-behavior: contain; }
 #board-menu { left: 16px; }
 #file-menu { right: 16px; }
 .menu-title { padding: 6px 9px 4px; font-weight: 620; font-size: 11.5px; color: var(--muted); }
@@ -391,7 +392,7 @@ svg { display: block; }
 }
 .card[data-tone="topic"][data-depth="3"]:not([data-profile="title"]):not([data-profile="empty"]) .card-copy { padding: 14px 16px 13px 18px; }
 .card[data-tone="topic"][data-depth="3"] :is(.card-title, .inline-title) { font-size: 15.5px; line-height: 1.38; font-weight: 700; letter-spacing: -.015em; }
-.card:not([data-profile="title"]):not([data-profile="empty"]):not([data-shape]):not([data-custom-fill])::before {
+.card:not([data-profile="title"]):not([data-profile="empty"]):not([data-shape="plain"]):not([data-shape="pill"])::before {
   content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px; border-radius: 0 3px 3px 0;
   background: var(--card-accent); pointer-events: none;
 }
@@ -416,19 +417,56 @@ svg { display: block; }
 .card[data-has-status]:is([data-profile="title"],[data-profile="empty"]) .card-copy { padding-right: 28px; }
 
 .card-glance {
-  display: none; position: absolute; inset: 0; align-items: center; padding: 6px 12px 6px 14px;
+  display: none; position: absolute; inset: 0; align-items: center; padding: 8px 12px 8px 14px;
   overflow: hidden; border-radius: inherit; color: var(--card-ink); pointer-events: none;
 }
 .card-glance span {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
-  font-size: clamp(14px, calc(12.5px / var(--glance-scale, 1)), 72px);
-  line-height: 1.2; font-weight: 700; letter-spacing: -.01em; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; max-height: 100%;
+  font-size: clamp(16px, calc(8.5px / var(--glance-scale, 1)), 23px);
+  line-height: 1.24; font-weight: 680; letter-spacing: -.01em; overflow-wrap: break-word; word-break: normal;
 }
-.card:is([data-depth="0"],[data-depth="1"]) .card-glance span { font-size: clamp(16px, calc(16px / var(--glance-scale, 1)), 110px); }
+.card:is([data-depth="0"],[data-depth="1"]) .card-glance span {
+  font-size: clamp(18px, calc(10px / var(--glance-scale, 1)), 26px);
+  line-height: 1.22; font-weight: 720;
+}
+.card:is([data-profile="title"],[data-profile="empty"]) .card-glance { padding: 4px 12px; }
+.card:is([data-profile="title"],[data-profile="empty"]) .card-glance span {
+  -webkit-line-clamp: 1;
+  font-size: clamp(14px, calc(9px / var(--glance-scale, 1)), 21px);
+  line-height: 1.18;
+}
+.card[data-tone="topic"][data-profile="title"] .card-glance span {
+  font-size: clamp(16px, calc(10px / var(--glance-scale, 1)), 24px);
+}
 #viewport.is-overview .card:not(.is-editing) .card-glance { display: flex; }
 #viewport.is-overview .card:not(.is-editing) > :is(.card-copy, .card-status, .card-size) { visibility: hidden; }
-#viewport.is-far .card[data-depth="3"]:not(.selected) .card-glance { display: none; }
-#viewport.is-far .card[data-depth="3"]:not(.selected):not(.is-dimmed) { opacity: .55; }
+
+.glance-preview {
+  position: fixed; z-index: 8; left: 0; top: 0; max-width: min(320px, calc(100vw - 32px));
+  padding: 11px 13px 10px 15px; border-radius: 13px; pointer-events: none;
+  background: var(--glass); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 12px 32px -6px rgba(15, 23, 42, 0.22), 0 2px 8px rgba(15, 23, 42, 0.08);
+  color: var(--ink); overflow: hidden;
+}
+.glance-preview::before {
+  content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3.5px; border-radius: 0 3px 3px 0;
+  background: var(--glance-accent, var(--board-accent, var(--green)));
+}
+.glance-preview-meta {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 11px; color: var(--muted);
+}
+.glance-preview-status { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--ink-soft); }
+.glance-preview-status i { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--chip-ink, var(--green)); }
+.glance-preview-title {
+  margin: 0; font-size: 14.5px; line-height: 1.35; font-weight: 680; color: var(--ink);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: break-word;
+}
+.glance-preview-body {
+  margin: 5px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-soft);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: break-word;
+  white-space: pre-line;
+}
 
 /* Bottom Centered Floating Dock (replaces old left rail) */
 .rail, .panel, .float-controls, .selection-tools, .tip {
@@ -603,7 +641,7 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.42); backdrop-filter: blur(4px
 .sync-gate-card h1 { margin: 0 0 10px; font-size: 20px; }
 .sync-gate-card p { color: var(--muted); line-height: 1.6; margin: 0 0 15px; }
 .sync-alert {
-  position: fixed; z-index: 11; top: calc(var(--chrome-top) + 50px); left: 50%; transform: translateX(-50%);
+  position: fixed; z-index: 9; top: calc(var(--chrome-top) + 50px); left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   width: max-content; max-width: calc(100vw - 32px); padding: 6px 10px 6px 14px;
   background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 10px;
@@ -926,20 +964,43 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.42); backdrop-filter: blur(4px
 .edge.selected { stroke-width: calc(var(--edge-width) + 1px); }
 #edge-layer .is-dimmed:not(:has(.selected)), .card.is-dimmed { opacity: .24; }
 .card.is-dimmed:focus-within, .card.is-dimmed.selected { opacity: .68; }
-.card[data-profile="empty"] { background: var(--empty-fill, var(--glass)); border-color: var(--empty-border, var(--line)); color: var(--empty-text, var(--muted)); }
+:root .card[data-profile="empty"],
+:root .card[data-tone="topic"][data-profile="empty"],
+:root[data-chrome="dark"] .card[data-tone][data-profile="empty"] {
+  --card-bg: var(--empty-fill, var(--glass));
+  --card-line: var(--empty-border, var(--line));
+  --card-ink: var(--empty-text, var(--muted));
+  --card-sub: var(--empty-text, var(--muted));
+  background: var(--empty-fill, var(--glass));
+  border-color: var(--empty-border, var(--line));
+  color: var(--empty-text, var(--muted));
+  box-shadow: none;
+}
 .card[data-shape="square"] { border-radius: 3px; }
 .card[data-shape="rounded"] { border-radius: 14px; }
 .card[data-shape="pill"] { border-radius: 999px; }
-.card[data-shape="plain"] { background: transparent; border-color: transparent; box-shadow: none; }
+:root .card[data-shape="plain"],
+:root .card[data-tone][data-profile="empty"][data-shape="plain"],
+:root[data-chrome="dark"] .card[data-tone][data-profile="empty"][data-shape="plain"] { background: transparent; border-color: transparent; box-shadow: none; }
+.card[data-shape="plain"][data-tone="topic"]:not([data-depth="3"]) {
+  --card-ink: var(--plain-ink, var(--ink));
+  --card-sub: var(--plain-ink, var(--ink-soft));
+  --card-accent: var(--board-accent, var(--green));
+}
 .card[data-shape="plain"][data-tone="topic"] .card-copy { color: var(--plain-ink, var(--ink)); background: none; }
 .card[data-shape="plain"][data-tone="topic"] .card-body { color: var(--plain-ink, var(--ink-soft)); }
+.card[data-shape="plain"][data-tone="topic"]:not([data-depth="3"]) .card-meta { border-top-color: var(--card-divider); }
+.card[data-shape="plain"][data-tone="topic"]:not([data-depth="3"]) .card-chip { background: var(--surface-sub); border-color: var(--line); color: var(--ink-soft); }
+.card[data-shape="plain"][data-tone="topic"]:not([data-depth="3"]) .card-chip.is-sources[aria-expanded="true"] { background: var(--green-light); border-color: var(--board-accent, var(--green)); color: var(--board-accent, var(--green)); }
+.card[data-shape="plain"][data-tone="topic"]:not([data-depth="3"]) .flow-text code { background: rgba(15, 23, 42, 0.06); }
+:root[data-chrome="dark"] .card[data-shape="plain"][data-tone="topic"]:not([data-depth="3"]) .flow-text code { background: rgba(255, 255, 255, 0.09); }
 .card[data-sized] .card-title { font-size: var(--card-font-size) !important; }
 .card[data-sized] .card-body { font-size: var(--card-font-size); }
 .card[data-intrinsic] { width: max-content; }
 .card[data-intrinsic] .card-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 13px; }
 .card[data-intrinsic] .card-title { flex: none; }
 .card[data-detail="title"] :is(.card-body,.card-cover,.done-toggle) { display: none; }
-.card[data-detail="summary"] .card-body { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; max-height: 4.8em; overflow: hidden; }
+.card[data-detail="summary"]:not([data-show-done]) .card-body { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; max-height: 4.8em; overflow: hidden; }
 .card[data-detail="summary"] .card-cover img { max-height: 90px; }
 .card-body img { height: auto; max-width: 100%; max-height: 240px; object-fit: contain; vertical-align: middle; }
 .card[data-detail="summary"] .card-body img { max-height: 54px; }
@@ -1165,7 +1226,7 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
 .selection-divider { width: 1px; height: 18px; background: var(--line); margin: 0 3px; flex: none; }
 
 .context-menu {
-  position: fixed; z-index: 30; min-width: 222px; max-width: 276px; padding: 6px;
+  position: fixed; z-index: 30; min-width: 222px; max-width: 276px; max-height: calc(100dvh - 20px); overflow-y: auto; overscroll-behavior: contain; padding: 6px;
   background: var(--glass); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid var(--border-subtle); border-radius: 13px; box-shadow: var(--shadow-island);
 }
@@ -1621,6 +1682,7 @@ a.source-popover-link:hover .source-popover-label { color: var(--board-accent, v
   </div>
 </div>
 
+  <aside id="glance-preview" class="glance-preview" role="tooltip" hidden></aside>
   <div class="toast" id="toast" role="status" hidden></div>
   <div id="sync-alert" class="sync-alert" role="status" hidden>
     <span id="sync-alert-text"></span>
@@ -1689,7 +1751,7 @@ a.source-popover-link:hover .source-popover-label { color: var(--board-accent, v
 
 <dialog id="help-dialog" aria-labelledby="help-heading">
   <div class="help-content">
-    <div class="dialog-header"><h2 id="help-heading">操作指南 · v2.1</h2><button type="button" class="icon-btn" data-action="close-help" aria-label="关闭指南"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="dialog-header"><h2 id="help-heading">操作指南 · v2.2</h2><button type="button" class="icon-btn" data-action="close-help" aria-label="关闭指南"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
     <div class="help-grid">
       <section class="help-group">
         <h3>创建与编辑</h3>
@@ -2312,6 +2374,7 @@ const CanvasData = (() => {
       return parsed;
     });
     requireValue(boardIds.has(value.activeId), '当前画布在文件中不存在。');
+    const boardById = new Map(boards.map(item => [item.id, item]));
     for (const item of boards) {
       if (item.settings.parentId && (!boardIds.has(item.settings.parentId) || item.settings.parentId === item.id)) {
         item.settings.parentId = null;
@@ -2320,6 +2383,19 @@ const CanvasData = (() => {
         if (node.subBoardId && (!boardIds.has(node.subBoardId) || node.subBoardId === item.id)) {
           delete node.subBoardId;
         }
+      }
+    }
+    for (const item of boards) {
+      const trail = new Set([item.id]);
+      let cursor = item;
+      while (cursor.settings.parentId) {
+        const next = boardById.get(cursor.settings.parentId);
+        if (!next || trail.has(next.id)) {
+          cursor.settings.parentId = null;
+          break;
+        }
+        trail.add(next.id);
+        cursor = next;
       }
     }
     const themes = records(value.themes, (item, name) => name && { id: item.id, name, appearance: appearance(item.appearance) });
@@ -2351,7 +2427,7 @@ const CanvasData = (() => {
   return { tone, uid, makeBoard, newAppearance, newSettings, parse, storage, exportHtml };
 })();
 
-const sourceHtml = '<!doctype html>\n' + document.documentElement.outerHTML.replace('<meta id="canvas-browser-sync">', '<!-- LOCAL_CANVAS_SYNC -->');
+const sourceHtml = '<!doctype html>\n' + document.documentElement.outerHTML.replace('<meta id="canvas-browser-sync">', '<!-- ' + 'LOCAL_CANVAS_SYNC -->');
 const $ = selector => document.querySelector(selector);
 const controls = Object.fromEntries([...document.querySelectorAll('[data-action]')].map(el => [el.dataset.action, el]));
 const viewport = $('#viewport');
@@ -2407,6 +2483,8 @@ const cardSizes = new ResizeObserver(entries => {
   if (!changed) return;
   renderEdges(activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions, dirtyIds);
   CanvasViews.renderFrames(activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions, visibility.hidden);
+  positionSelectionBar();
+  positionSourcePopover();
   scheduleMap();
 });
 const history = new Map();
@@ -2518,10 +2596,27 @@ const syncing = !!desktop || browserSync;
 const persistence = syncing ? null : CanvasData.storage(embedded.edition);
 const draftKey = 'idea-canvas:uncommitted:v1';
 if (browserSync) {
-  window.addEventListener('hashchange', () => {
-    if (!new URLSearchParams(location.hash.slice(1)).has('pair')) return;
-    if ($('#sync-gate').hidden) window.history.replaceState(null, '', location.pathname);
-    else location.reload();
+  window.addEventListener('hashchange', async () => {
+    const code = new URLSearchParams(location.hash.slice(1)).get('pair');
+    if (!code) return;
+    if (!$('#sync-gate').hidden) {
+      location.reload();
+      return;
+    }
+    window.history.replaceState(null, '', location.pathname);
+    try {
+      await browserRequest('/pair', jsonRequest('POST', { code }));
+      retryAt = 0;
+      connectionIssue = false;
+      if (unresolved) {
+        handleSyncConflict();
+        toast('已重新配对，请点「保留为新画布」继续同步');
+      } else {
+        void pullShared();
+      }
+    } catch (error) {
+      handleSyncFailure(error);
+    }
   });
 }
 let workspace = embedded.workspace ? CanvasData.parse(JSON.stringify(embedded.workspace)) : demoWorkspace();
@@ -2587,8 +2682,14 @@ try {
     try {
       const draft = JSON.parse(sessionStorage.getItem(draftKey));
       if (draft) {
-        workspace = CanvasData.parse(draft.json);
-        if (dirty() && (draft.unresolved === true || draft.revision !== revision)) unresolved = true;
+        const parsedDraft = CanvasData.parse(draft.json);
+        if (contentOf(parsedDraft) === lastSyncedContent) {
+          sessionStorage.removeItem(draftKey);
+        } else {
+          workspace = parsedDraft;
+          if (typeof draft.base === 'string') lastSyncedContent = draft.base;
+          if (dirty() && (draft.unresolved === true || draft.revision !== revision)) unresolved = true;
+        }
       }
     } catch {
       // The disk snapshot is still usable if a browser draft is unavailable.
@@ -2666,8 +2767,11 @@ function desktopStateLabel(label, state = 'ok', tip = '内容写入本机画布�
 function rememberDraft() {
   if (!browserSync) return;
   try {
-    if (dirty()) sessionStorage.setItem(draftKey, JSON.stringify({ revision, unresolved, json: JSON.stringify(workspace) }));
-    else sessionStorage.removeItem(draftKey);
+    if (dirty()) {
+      sessionStorage.setItem(draftKey, JSON.stringify({
+        revision, unresolved, base: lastSyncedContent, json: JSON.stringify(workspace),
+      }));
+    } else sessionStorage.removeItem(draftKey);
   } catch {
     // A dirty tab still has the exit prompt and its file export.
   }
@@ -3831,15 +3935,18 @@ const CanvasLayout = (() => {
     const result = new Map(fixed.map(node => [node.id, { x: node.x, y: node.y }]));
     const byId = new Map(nodes.map(node => [node.id, node]));
     const [depth, lane, depthSize, laneSize] = vertical ? ['y', 'x', 'h', 'w'] : ['x', 'y', 'w', 'h'];
-    for (const [id, point] of positions) {
+    const eps = 1e-6;
+    const movable = [...positions.entries()]
+      .filter(([id]) => !byId.get(id).pinned)
+      .sort(([idA, a], [idB, b]) => a[lane] - b[lane] || a[depth] - b[depth] || idA.localeCompare(idB));
+    for (const [id, point] of movable) {
       const node = byId.get(id);
-      if (node.pinned) continue;
       const along = point[depth];
-      const intervals = active.filter(other => along < other[depth] + other[depthSize] + gap && along + node[depthSize] + gap > other[depth])
+      const intervals = active.filter(other => along < other[depth] + other[depthSize] + gap - eps && along + node[depthSize] + gap - eps > other[depth])
         .map(other => [other[lane] - node[laneSize] - gap, other[lane] + other[laneSize] + gap]).sort((a, b) => a[0] - b[0]);
       let across = point[lane];
       for (const [start, end] of intervals) {
-        if (across <= start) break;
+        if (across <= start + eps) break;
         across = Math.max(across, end);
       }
       const placed = { ...point, [lane]: across };
@@ -3961,7 +4068,7 @@ const CanvasLayout = (() => {
     return positions;
   }
 
-  return { tree, subtree, project, compute, align, avoidFixed, categoryName, matrixTracks, reclassifyCard, branchLanes, reflowBranch,
+  return { tree, orient, subtree, project, compute, align, avoidFixed, categoryName, matrixTracks, reclassifyCard, branchLanes, reflowBranch,
     foldedDescendants, isTreeMode, overlappingRevealRoots };
 })();
 
@@ -4228,8 +4335,7 @@ function applyLayout(ids, { scope, options, result, edits, anchorId }, targetCam
       JSON.stringify(nextGuides) === JSON.stringify(settings.guides)) {
     render();
     if (anchor && camera.scale < .8) {
-      fitNodes(result.positions.keys(), true, anchor);
-      current.view = { ...camera };
+      fitNodes(result.positions.keys(), false, anchor);
       save();
     }
     focusCanvas();
@@ -4244,8 +4350,8 @@ function applyLayout(ids, { scope, options, result, edits, anchorId }, targetCam
   camera = targetCamera;
   render();
   animatePositions(before);
-  if (options.mode !== 'free') fitNodes(tree ? result.positions.keys() : ids, true, anchor);
-  current.view = { ...camera };
+  if (options.mode !== 'free') fitNodes(tree ? result.positions.keys() : ids, false, anchor);
+  else current.view = { ...camera };
   save();
   focusCanvas();
   toast(edits?.size ? '已更新分类，可撤销' : '已整理，可撤销');
@@ -4290,7 +4396,15 @@ function mountLayout() {
       const value = event.target.value;
       const key = id.slice(7);
       if (key === 'scope') layoutDraft.scope = value;
-      else layoutDraft.options[key === 'root' ? 'rootId' : key] = value || null;
+      else if (key === 'rows') {
+        const prev = layoutDraft.options.rows;
+        layoutDraft.options.rows = value;
+        if (layoutDraft.options.columns === value) layoutDraft.options.columns = prev;
+      } else if (key === 'columns') {
+        const prev = layoutDraft.options.columns;
+        layoutDraft.options.columns = value;
+        if (layoutDraft.options.rows === value) layoutDraft.options.rows = prev;
+      } else layoutDraft.options.rootId = value || null;
       previewLayout(true);
     });
   }
@@ -4345,6 +4459,13 @@ function paintMatrixKey(options, tracks) {
 }
 
 function paintLayoutGuides() {
+  if (CanvasViews.isFocused()) {
+    viewport.classList.toggle('is-matrix', false);
+    const key = $('#matrix-key');
+    if (key) key.hidden = true;
+    $('#layout-guide-layer').replaceChildren();
+    return;
+  }
   const { options, guides } = displayedLayout();
   const fragment = document.createDocumentFragment();
   const matrix = options.mode === 'matrix' && guides.length > 0;
@@ -4774,22 +4895,27 @@ const CanvasInspector = (() => {
     return block;
   }
 
-  function styleTarget(owners, name, inherited, defaultValues) {
+  function styleTarget(owners, name, inherited, defaultValues, hooks = null) {
     function current(owner) {
       return name ? owner[name] || {} : owner;
     }
 
     function read(key) {
-      const first = owners[0];
-      const local = current(first)[key];
-      const fallback = owner => (typeof inherited === 'function' ? inherited(owner) : inherited)[key] ?? defaultValues[key];
-      const effective = local ?? fallback(first);
-      const mixed = owners.some(owner => (current(owner)[key] ?? fallback(owner)) !== effective);
-      return { effective, mixed, overridden: owners.some(owner => current(owner)[key] !== undefined) };
+      const baseOf = owner => typeof defaultValues === 'function' ? defaultValues(owner) : defaultValues;
+      const fallback = owner => (typeof inherited === 'function' ? inherited(owner) : inherited)[key] ?? baseOf(owner)[key];
+      const localOf = owner => {
+        const override = hooks?.readOverride?.(owner, key);
+        return override !== undefined ? override : current(owner)[key];
+      };
+      const effective = localOf(owners[0]) ?? fallback(owners[0]);
+      const mixed = owners.some(owner => (localOf(owner) ?? fallback(owner)) !== effective);
+      return { effective, mixed, overridden: owners.some(owner => localOf(owner) !== undefined) || !!hooks?.hasOverride?.(key) };
     }
 
     function write(key, value) {
-      if (owners.every(owner => current(owner)[key] === value)) return;
+      if (owners.every(owner => current(owner)[key] === value) && !hooks?.hasOverride?.(key)) return;
+      const baseOf = owner => typeof defaultValues === 'function' ? defaultValues(owner) : defaultValues;
+      const fallback = owner => (typeof inherited === 'function' ? inherited(owner) : inherited)[key] ?? baseOf(owner)[key];
       applyChange(() => {
         for (const owner of owners) {
           if (!name) {
@@ -4797,22 +4923,25 @@ const CanvasInspector = (() => {
             else owner[key] = value;
           } else {
             const next = { ...current(owner) };
-            if (value === undefined) delete next[key];
+            const onlyEdgeOverride = value !== undefined && next[key] === undefined && hooks?.readOverride?.(owner, key) !== undefined && value === fallback(owner);
+            if (value === undefined || onlyEdgeOverride) delete next[key];
             else next[key] = value;
             if (Object.keys(next).length) owner[name] = next;
             else delete owner[name];
           }
         }
+        hooks?.onWrite?.(key, value);
       });
     }
 
     function reset() {
-      if (owners.every(owner => !Object.keys(current(owner)).length)) return;
+      if (owners.every(owner => !Object.keys(current(owner)).length) && !hooks?.hasOverride?.()) return;
       applyChange(() => {
         for (const owner of owners) {
           if (name) delete owner[name];
           else for (const key of Object.keys(owner)) delete owner[key];
         }
+        hooks?.onReset?.();
       });
     }
 
@@ -4893,18 +5022,28 @@ const CanvasInspector = (() => {
   }
 
   const cardDefaults = { fill: '#ffffff', border: '#e2e8f0', text: '#0f172a', size: 14, shape: 'rounded' };
+  const darkCardDefaults = { fill: '#181c24', border: '#2a303c', text: '#f1f5f9', size: 14, shape: 'rounded' };
   const branchDefaults = { color: '#64748b', width: 1.5, shape: 'curve', dash: 'solid', arrow: 'none' };
   const linkDefaults = { ...branchDefaults, color: '#94a3b8', arrow: 'end' };
 
-  function cardDefaultValues(node) {
-    if (!node) return cardDefaults;
-    const element = document.querySelector('.card[data-card="' + CSS.escape(node.id) + '"]');
-    if (!element) return cardDefaults;
-    const css = getComputedStyle(element);
-    const readColor = (name, fallback) => color.test(css.getPropertyValue(name).trim()) ? css.getPropertyValue(name).trim() : fallback;
+  function cardDefaultValues(node, settings = board().settings) {
+    const dark = isDarkHex(settings?.appearance?.background);
+    const base = dark ? darkCardDefaults : cardDefaults;
+    if (!node || node.tone !== 'topic') return base;
+    const accentHex = color.test(settings?.appearance?.accent || '') ? settings.appearance.accent : (dark ? '#10b981' : '#0f766e');
+    if ((nodeDepths.get(node.id) ?? 0) >= 3) {
+      return {
+        ...base,
+        fill: mixHex(accentHex, dark ? '#181c24' : '#ffffff', dark ? 0.85 : 0.93),
+        border: mixHex(accentHex, dark ? '#181c24' : '#ffffff', dark ? 0.66 : 0.74),
+        text: dark ? '#f1f5f9' : '#1e293b',
+      };
+    }
     return {
-      ...cardDefaults, fill: readColor('--card-bg', cardDefaults.fill),
-      border: readColor('--card-line', cardDefaults.border), text: readColor('--card-ink', cardDefaults.text),
+      ...base,
+      fill: mixHex(accentHex, '#0b171d', 0.54),
+      border: mixHex(accentHex, '#081116', 0.62),
+      text: '#f8fafc',
     };
   }
 
@@ -4912,7 +5051,8 @@ const CanvasInspector = (() => {
     const appearance = settings.appearance;
     const canvas = section('背景与网格');
     canvas.append(appearanceFields(appearance));
-    const titles = styleSection('默认卡片样式', styleTarget([appearance.card], null, {}, cardDefaults), cardStyleFields, true);
+    const boardCardBase = isDarkHex(appearance.background) ? darkCardDefaults : cardDefaults;
+    const titles = styleSection('默认卡片样式', styleTarget([appearance.card], null, {}, boardCardBase), cardStyleFields, true);
     const branches = styleSection('默认分支样式', styleTarget([appearance.branch], null, {}, branchDefaults), lineStyleFields, true);
     const links = styleSection('默认关系线样式', styleTarget([appearance.link], null, {}, linkDefaults), lineStyleFields, true);
     body.append(showThemes(settings), canvas, rainbowSection(), titles, branches, links);
@@ -4945,7 +5085,7 @@ const CanvasInspector = (() => {
     const typeField = field('卡片类型', tonePills);
     typeField.classList.add('inspector-field-full');
     const inherited = owner => cardDefaultsFor(owner.id, settings);
-    const target = styleTarget(cards, 'style', inherited, cardDefaultValues(cards[0]));
+    const target = styleTarget(cards, 'style', inherited, owner => cardDefaultValues(owner, settings));
     body.append(styleSection('卡片样式', target, owner => {
       const fields = cardStyleFields(owner);
       fields.prepend(typeField);
@@ -4963,7 +5103,33 @@ const CanvasInspector = (() => {
       ...settings.appearance.branch,
       ...inheritedBranches.get(hierarchy.parent.get(owner.id)),
     });
-    const target = styleTarget(cards, 'branchStyle', inherited, branchDefaults);
+    const branchEdges = () => {
+      const ids = new Set(cards.map(card => card.id));
+      const edge = chosenEdge();
+      return board().edges.filter(item => item.kind === 'branch' && (item.id === edge?.id || ids.has(item.to)));
+    };
+    const clearEdgeOverride = key => {
+      for (const edge of branchEdges()) {
+        if (!edge.style) continue;
+        if (key) {
+          delete edge.style[key];
+          if (!Object.keys(edge.style).length) delete edge.style;
+        } else {
+          delete edge.style;
+        }
+      }
+    };
+    const incomingEdge = owner => {
+      const edge = chosenEdge();
+      if (edge?.kind === 'branch' && edge.to === owner.id) return edge;
+      return board().edges.find(item => item.kind === 'branch' && item.to === owner.id) || null;
+    };
+    const target = styleTarget(cards, 'branchStyle', inherited, branchDefaults, {
+      readOverride: (owner, key) => incomingEdge(owner)?.style?.[key],
+      hasOverride: key => branchEdges().some(edge => edge.style && (key ? edge.style[key] !== undefined : Object.keys(edge.style).length > 0)),
+      onWrite: key => clearEdgeOverride(key),
+      onReset: () => clearEdgeOverride(null),
+    });
     const block = styleSection('分支线条样式', target, lineStyleFields);
     body.append(block, rainbowSection());
   }
@@ -5179,6 +5345,7 @@ const CanvasInspector = (() => {
     if (!panel) return;
     panel.hidden = true;
     setExpanded(false);
+    scheduleMap();
   }
 
   function toggle() {
@@ -5201,6 +5368,9 @@ const CanvasInspector = (() => {
     panel.addEventListener('pointerdown', event => { activePointer = event.pointerId; }, true);
     window.addEventListener('pointerup', finishPointer, true);
     window.addEventListener('pointercancel', finishPointer, true);
+    window.addEventListener('blur', () => {
+      if (activePointer !== null) finishPointer({ pointerId: activePointer });
+    });
     panel.addEventListener('click', event => {
       const control = event.target.closest('[data-inspector-tab]');
       if (control) open(control.dataset.inspectorTab);
@@ -5261,7 +5431,7 @@ const CanvasViews = (() => {
     return !!focused && focused.boardId === board().id && !!nodeBy(focused.id);
   }
 
-  function visibility(tree) {
+  function computeVisibility(tree) {
     const current = board();
     const { folded, statuses, tags } = current.settings;
     const hidden = CanvasLayout.foldedDescendants(tree, folded);
@@ -5390,7 +5560,7 @@ const CanvasViews = (() => {
     applyChange(() => {
       current.settings.folded = [...folded];
       if (!opening && !rearrange) return;
-      const { hidden } = visibility(tree);
+      const { hidden } = computeVisibility(tree);
       const shown = opening ? children.filter(child => !hidden.has(child)) : [];
       for (const child of shown) cardIndex.get(child).element.hidden = false;
       const foldedOut = CanvasLayout.foldedDescendants(tree, current.settings.folded);
@@ -5452,7 +5622,7 @@ const CanvasViews = (() => {
         const positions = CanvasLayout.reflowBranch(current.nodes.map(cardRect), tree, id, layout);
         if (applyBranchPositions(byId, positions)) moved = true;
       }
-      if (moved && anchor && !visibility(tree).hidden.has(anchor)) followOpenedBranch(cardRect(byId.get(anchor)), [], false);
+      if (moved && anchor && !computeVisibility(tree).hidden.has(anchor)) followOpenedBranch(cardRect(byId.get(anchor)), [], false);
     }, { view: arranged && !isFocused() });
     if (moved) animatePositions(beforePositions);
   }
@@ -5465,7 +5635,7 @@ const CanvasViews = (() => {
     close();
     if (board().settings.folded.includes(id)) toggleFold(id);
     const tree = graph();
-    const { hidden } = visibility(tree);
+    const { hidden } = computeVisibility(tree);
     const branch = CanvasLayout.subtree(tree, id).filter(member => !hidden.has(member));
     render();
     fitNodes(branch.length ? branch : [id], true, id);
@@ -5523,7 +5693,7 @@ const CanvasViews = (() => {
     if (active) renderFocusPath(focused.id);
 
     const graphNow = graph();
-    const { filtering, matched } = visibility(graphNow);
+    const { filtering, matched } = computeVisibility(graphNow);
     const filterStrip = $('#view-filter-strip');
     if (filterStrip) {
       filterStrip.hidden = !filtering;
@@ -5568,6 +5738,7 @@ const CanvasViews = (() => {
     controls['view-options'].setAttribute('aria-expanded', 'false');
     controls.outline.setAttribute('aria-expanded', 'false');
     clearDrag();
+    scheduleMap();
   }
 
   function toggle(tab = 'view') {
@@ -5582,12 +5753,48 @@ const CanvasViews = (() => {
     clearDrag();
   }
 
+  function ensureVisible(ids) {
+    if (!ids?.length) return false;
+    let changed = false;
+    const current = board();
+    const status = current.settings.statuses.some(item => item.id === filter.status) ? filter.status : '';
+    const tag = current.settings.tags.some(item => item.id === filter.tag) ? filter.tag : '';
+    if ((status || tag) && filter.mode === 'hide') {
+      const hiddenByFilter = ids.some(id => {
+        const node = nodeBy(id);
+        return node && ((status && node.status !== status) || (tag && !node.tags?.includes(tag)));
+      });
+      if (hiddenByFilter) {
+        filter.mode = 'dim';
+        changed = true;
+        toast('已将筛选改为淡化模式以显示新卡片');
+      }
+    }
+    if (!isFocused()) return changed;
+    const tree = CanvasLayout.tree(current.nodes, current.edges);
+    const branch = new Set(CanvasLayout.subtree(tree, focused.id));
+    if (ids.every(id => branch.has(id))) return changed;
+    const parentId = tree.parent.get(focused.id);
+    if (parentId) {
+      const parentBranch = new Set(CanvasLayout.subtree(tree, parentId));
+      if (ids.every(id => parentBranch.has(id))) {
+        focused.id = parentId;
+        toast('已切换到上一级分支以显示新卡片');
+        return true;
+      }
+    }
+    focused = null;
+    toast('已退出分支专注以显示新卡片');
+    return true;
+  }
+
   function revealFromOutline(id) {
     const node = nodeBy(id);
     if (!node) return;
     const tree = graph();
-    const state = visibility(tree);
+    const state = computeVisibility(tree);
     if (state.hidden.has(id)) {
+      if (isFocused() && !CanvasLayout.subtree(tree, focused.id).includes(id)) focused = null;
       const ancestors = new Set();
       let parent = tree.parent.get(id);
       while (parent && !ancestors.has(parent)) {
@@ -5856,6 +6063,9 @@ const CanvasViews = (() => {
     const foldedMovedIds = ids.filter(id => current.settings.folded.includes(id));
     const hiddenMoved = foldedMovedIds.length ? CanvasLayout.foldedDescendants(tree, foldedMovedIds) : new Set();
     const oldParents = roots.map(id => tree.parent.get(id)).filter(Boolean);
+    const preDragBoxes = current.settings.frames.length
+      ? new Map(current.settings.frames.map(frame => [frame.id, frameRect(frame, null, visibility.hidden)]))
+      : null;
     applyChange(() => {
       for (const [id, position] of dropped) Object.assign(nodeBy(id), { x: position.x, y: position.y });
       const siblings = (tree.children.get(targetId) || []).filter(id => !roots.includes(id));
@@ -5895,6 +6105,7 @@ const CanvasViews = (() => {
           }
         }
       }
+      if (preDragBoxes) syncMembershipAfterDrag(ids.map(nodeBy).filter(Boolean), preDragBoxes);
     });
     animatePositions(before);
     toast((roots.length > 1 ? `已把 ${roots.length} 张卡片` : '已') + `挂到「${titleOf(target)}」下，可撤销`);
@@ -5968,13 +6179,14 @@ const CanvasViews = (() => {
   }
 
   function frameRect(frame, positions = null, hidden = null) {
+    if (hidden && frame.members.length === 0 && isFocused()) return null;
     const members = frame.members.filter(id => !hidden?.has(id)).map(id => {
       const node = nodeBy(id);
       if (!node) return null;
       const pos = positions?.get(id);
       return pos ? { ...node, ...pos } : node;
     }).filter(Boolean);
-    if (hidden && frame.members.length > 0 && !frame.box && !members.length) return null;
+    if (hidden && frame.members.length > 0 && !members.length) return null;
     const memberBox = paddedBounds(members);
     return unionBox(frame.box || null, memberBox);
   }
@@ -5989,6 +6201,10 @@ const CanvasViews = (() => {
     if (members.length) {
       box = paddedBounds(members.map(nodeBy));
     } else {
+      if (isFocused()) {
+        focused = null;
+        toast('已退出分支专注以创建空白分区');
+      }
       const center = worldLocation || { x: camera.x, y: camera.y };
       box = { x: coordinate(center.x - 180), y: coordinate(center.y - 120), w: 360, h: 240 };
     }
@@ -6040,7 +6256,7 @@ const CanvasViews = (() => {
   function framesAtPoint(worldPt) {
     const matches = [];
     for (const frame of board().settings.frames) {
-      const box = frameRect(frame);
+      const box = frameRect(frame, null, visibility.hidden);
       if (box && worldPt.x >= box.x && worldPt.x <= box.x + box.w && worldPt.y >= box.y && worldPt.y <= box.y + box.h) {
         matches.push(frame);
       }
@@ -6065,7 +6281,7 @@ const CanvasViews = (() => {
     const frames = board().settings.frames;
     if (!frames.length || !movedNodes.length) return [];
     const changes = [];
-    const frameBoxes = preDragBoxes || new Map(frames.map(frame => [frame.id, frameRect(frame)]));
+    const frameBoxes = preDragBoxes || new Map(frames.map(frame => [frame.id, frameRect(frame, null, visibility.hidden)]));
     for (const node of movedNodes) {
       const rect = cardRect(node);
       const center = { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
@@ -6183,9 +6399,9 @@ const CanvasViews = (() => {
       const isOverride = frameOverride?.id === frame.id;
       const baseBox = isOverride ? frameOverride.box : frame.box;
       const box = unionBox(baseBox || null, isOverride && frameOverride.resize ? null : memberBox);
-      const allHidden = frame.members.length > 0 && !frame.box && members.length === 0;
+      const allHidden = (frame.members.length > 0 && members.length === 0) || (frame.members.length === 0 && isFocused());
       element.hidden = !box || allHidden;
-      if (!box) continue;
+      if (!box || allHidden) continue;
       element.style.transform = 'translate(' + box.x + 'px,' + box.y + 'px)';
       element.style.width = box.w + 'px';
       element.style.height = box.h + 'px';
@@ -6215,6 +6431,13 @@ const CanvasViews = (() => {
       const frame = currentFrame();
       if (!frame) return;
       const members = frame.members.filter(id => !!nodeBy(id));
+      if (isFocused()) {
+        const branch = new Set(CanvasLayout.subtree(graph(), focused.id));
+        if (!members.length || members.some(id => !branch.has(id))) {
+          focused = null;
+          render();
+        }
+      }
       setSelected(members);
       if (members.length) fitNodes(members, true);
       else if (frame.box) animateCamera({ x: frame.box.x + frame.box.w / 2, y: frame.box.y + frame.box.h / 2, scale: Math.max(camera.scale, .8) }, { duration: 240 });
@@ -6273,8 +6496,8 @@ const CanvasViews = (() => {
   }
 
   return {
-    mount, open, close, toggle, refresh, reset, visibility, expandAll, adoptAsChildren,
-    toggleFold, focus, exitFocus, isFocused, addFrame, selectFrame, renderFrames, revealFromOutline,
+    mount, open, close, toggle, refresh, reset, visibility: computeVisibility, expandAll, adoptAsChildren,
+    toggleFold, focus, exitFocus, isFocused, ensureVisible, addFrame, selectFrame, renderFrames, revealFromOutline,
     editFrameName, frameRect, markDropTargets, syncMembershipAfterDrag, removeFrameById: id => {
       if (activeFrame === id) activeFrame = null;
       applyChange(() => { board().settings.frames = board().settings.frames.filter(frame => frame.id !== id); });
@@ -6308,11 +6531,12 @@ function paintView() {
   viewport.style.backgroundPosition = (left % spacing) + 'px ' + (top % spacing) + 'px';
   viewport.classList.toggle('is-overview', camera.scale < .6);
   viewport.classList.toggle('is-zoomed-out', camera.scale < .48);
-  viewport.classList.toggle('is-far', camera.scale < .3);
   viewport.style.setProperty('--glance-scale', Math.max(.025, Math.round(camera.scale * 40) / 40));
   $('#zoom-value').textContent = Math.round(camera.scale * 100) + '%';
   positionSelectionBar();
   positionSourcePopover();
+  if (camera.scale >= .6 || gesture) hideGlancePreview();
+  else positionGlancePreview();
   scheduleMap();
 }
 
@@ -6448,7 +6672,7 @@ function roundedOrthogonalPath(points, maxRadius = 10) {
   return parts.join(' ');
 }
 
-function routedBranchCurve(from, to, siblings, nodeGap = 24) {
+function routedBranchCurve(from, to, siblings, nodeGap = 24, reverse = false) {
   const rightSide = to.x >= from.x + from.w;
   const leftSide = !rightSide && to.x + to.w <= from.x;
   if (!rightSide && !leftSide) return null;
@@ -6468,33 +6692,41 @@ function routedBranchCurve(from, to, siblings, nodeGap = 24) {
   const laneY = to.y - Math.min(nodeGap, 24) / 2;
   const a = { x: parentEdge + sx * 2, y: from.y + from.h / 2 };
   const b = { x: childEdge - sx * (to.w ? 3 : 0), y: to.y + to.h / 2 };
-  const path = roundedOrthogonalPath([
+  const waypoints = [
     a,
     { x: spineX, y: a.y },
     { x: spineX, y: laneY },
     { x: gutterX, y: laneY },
     { x: gutterX, y: b.y },
     b,
-  ], 10);
+  ];
+  const path = roundedOrthogonalPath(reverse ? waypoints.reverse() : waypoints, 10);
+  const start = { x: a.x, y: a.y, dx: -sx, dy: 0 };
+  const end = { x: b.x, y: b.y, dx: sx, dy: 0 };
   return {
     path,
     label: { x: (spineX + gutterX) / 2, y: laneY },
-    start: { x: a.x, y: a.y, dx: -sx, dy: 0 },
-    end: { x: b.x, y: b.y, dx: sx, dy: 0 },
+    start: reverse ? end : start,
+    end: reverse ? start : end,
   };
 }
 
 function branchEdgeCurve(edge, from, to, rects, tree, layoutOptions, shape) {
   const mode = layoutOptions.mode;
-  const isChild = tree.parent.get(edge.to) === edge.from;
-  if ((mode === 'right' || mode === 'double') && edge.kind === 'branch' && isChild) {
-    const siblings = (tree.children.get(edge.from) || [])
-      .filter(id => id !== edge.to && rects.has(id))
+  const isForward = tree.parent.get(edge.to) === edge.from;
+  const isReverse = !isForward && tree.parent.get(edge.from) === edge.to;
+  if ((mode === 'right' || mode === 'double') && (isForward || isReverse)) {
+    const parentId = isForward ? edge.from : edge.to;
+    const childId = isForward ? edge.to : edge.from;
+    const parentRect = isForward ? from : to;
+    const childRect = isForward ? to : from;
+    const siblings = (tree.children.get(parentId) || [])
+      .filter(id => id !== childId && rects.has(id))
       .map(id => rects.get(id));
-    const routed = routedBranchCurve(from, to, siblings, layoutOptions.nodeGap);
+    const routed = routedBranchCurve(parentRect, childRect, siblings, layoutOptions.nodeGap, isReverse);
     if (routed) return routed;
   }
-  const side = mode === 'down' && isChild && to.y >= from.y + from.h ? 'down' : undefined;
+  const side = mode === 'down' && isForward && to.y >= from.y + from.h ? 'down' : undefined;
   return linkCurve(from, to, false, shape, side);
 }
 
@@ -6609,11 +6841,15 @@ function ensureEdgeMarker(color) {
 }
 
 function renderEdges(positions = activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions, dirtyNodeIds = null) {
-  const nodes = new Map(effectiveNodes(positions).filter(node => !visibility.hidden.has(node.id)).map(node => [node.id, cardRect(node)]));
+  const effectiveList = effectiveNodes(positions);
+  const nodes = new Map(effectiveList.filter(node => !visibility.hidden.has(node.id)).map(node => [node.id, cardRect(node)]));
   const layout = displayedLayout().options;
+  const orientedTree = layout.rootId && hierarchy.parent.has(layout.rootId)
+    ? CanvasLayout.orient(effectiveList, hierarchy, layout.rootId)
+    : hierarchy;
   const horizontalTree = layout.mode === 'right' || layout.mode === 'double';
   const dirtyParents = dirtyNodeIds && horizontalTree
-    ? new Set([...dirtyNodeIds].map(id => hierarchy.parent.get(id)).filter(Boolean))
+    ? new Set([...dirtyNodeIds].map(id => orientedTree.parent.get(id)).filter(Boolean))
     : null;
   const currentEdges = board().edges;
   const visibleEdgeIds = new Set();
@@ -6633,7 +6869,7 @@ function renderEdges(positions = activeLayoutPositions || gesture?.positions || 
     const dimmed = visibility.dimmed.has(edge.from) || visibility.dimmed.has(edge.to);
     const active = selection.kind === 'edge' && selection.id === edge.id;
     if (view && dirtyNodeIds && !dirtyNodeIds.has(edge.from) && !dirtyNodeIds.has(edge.to) &&
-        !(edge.kind === 'branch' && dirtyParents?.has(edge.from))) {
+        !(dirtyParents?.has(edge.from) || dirtyParents?.has(edge.to))) {
       view.element.classList.toggle('is-dimmed', dimmed);
       view.path.classList.toggle('selected', active);
       continue;
@@ -6642,7 +6878,7 @@ function renderEdges(positions = activeLayoutPositions || gesture?.positions || 
     const style = edgeStyle(edge);
     const from = nodes.get(edge.from);
     const to = nodes.get(edge.to);
-    const curve = branchEdgeCurve(edge, from, to, nodes, hierarchy, layout, style.shape);
+    const curve = branchEdgeCurve(edge, from, to, nodes, orientedTree, layout, style.shape);
 
     if (!view) {
       const element = svg('g', { 'data-edge': edge.id, role: 'group' });
@@ -6888,7 +7124,7 @@ function decorateCard(view, node, settings, statusBy, tagBy) {
   }
   if (style.shape) element.dataset.shape = style.shape;
   else delete element.dataset.shape;
-  element.toggleAttribute('data-custom-fill', !!style.fill);
+  element.toggleAttribute('data-custom-fill', !!node.style?.fill);
   element.toggleAttribute('data-sized', !!style.size);
   const status = statusBy.get(node.status);
   const tags = (node.tags || []).map(id => tagBy.get(id)).filter(Boolean);
@@ -7005,7 +7241,8 @@ function renderCards(nodes = board().nodes) {
     view.element.setAttribute('aria-label', CanvasData.tone[node.tone].label + ' · ' + titleOf(node));
     view.title.hidden = !node.title.trim() && (profile === 'note' || profile === 'image');
     view.title.textContent = profile === 'empty' ? '待补充' : titleOf(node);
-    view.glance.textContent = view.title.textContent;
+    const bodyLead = node.body.trim().split(/\r?\n/).map(line => line.trim()).find(Boolean) || '';
+    view.glance.textContent = node.title.trim() || bodyLead || (profile === 'empty' ? '待补充' : '未命名卡片');
     const contentChanged = view.plain !== node.body || view.rich !== node.richBody;
     if (contentChanged) {
       view.plain = node.body;
@@ -7028,6 +7265,7 @@ function renderCards(nodes = board().nodes) {
       const doneCount = view.body.querySelectorAll('.checklist-item[data-done="true"]').length;
       view.doneToggle.hidden = !doneCount;
       if (doneCount) view.doneToggle.textContent = `已完成 ${doneCount} 项`;
+      else view.element.removeAttribute('data-show-done');
     }
     view.body.hidden = !node.body.trim() && !view.body.querySelector('img');
     const prevMetaKey = view.metaKey;
@@ -7043,7 +7281,7 @@ function renderCards(nodes = board().nodes) {
       view.fold.setAttribute('aria-label', label);
       view.fold.title = label;
     } else delete view.element.dataset.foldSide;
-    placeCard(view.element, node);
+    if (inlineEdit?.node.id !== node.id) placeCard(view.element, node);
     if (contentChanged || prevProfile !== profile || prevDetail !== settings.detail ||
         prevTone !== node.tone || prevDepth !== nextDepth ||
         prevTitle !== view.title.textContent || prevMetaKey !== view.metaKey || prevWidth !== view.element.style.maxWidth) {
@@ -7052,7 +7290,107 @@ function renderCards(nodes = board().nodes) {
   }
 }
 
+let glancePreviewId = null;
+
+function hideGlancePreview() {
+  const el = $('#glance-preview');
+  if (!el) return;
+  glancePreviewId = null;
+  el.hidden = true;
+  el.style.left = '';
+  el.style.top = '';
+}
+
+function positionGlancePreview() {
+  const el = $('#glance-preview');
+  if (!el || el.hidden || !glancePreviewId) return;
+  const view = cardIndex.get(glancePreviewId);
+  if (!view || view.element.hidden) {
+    hideGlancePreview();
+    return;
+  }
+  const rect = view.element.getBoundingClientRect();
+  const topMin = chromeTopLimit();
+  if (rect.right < 0 || rect.left > window.innerWidth || rect.bottom < topMin || rect.top > window.innerHeight) {
+    hideGlancePreview();
+    return;
+  }
+  el.style.left = '0px';
+  el.style.top = '0px';
+  const w = el.offsetWidth || 260;
+  const h = el.offsetHeight || 72;
+  const left = clamp(rect.left + rect.width / 2 - w / 2, 16, Math.max(16, window.innerWidth - w - 16));
+  const above = rect.top - h - 10;
+  const below = rect.bottom + 10;
+  const maxTop = Math.max(topMin, window.innerHeight - h - 16);
+  const selBar = !$('#selection-tools').hidden ? $('#selection-tools').getBoundingClientRect() : null;
+  const overlapsSel = top => selBar && top < selBar.bottom + 6 && top + h > selBar.top - 6 && left < selBar.right + 6 && left + w > selBar.left - 6;
+  const canAbove = above >= topMin && above <= maxTop && !overlapsSel(above);
+  const canBelow = below >= topMin && below <= maxTop && !overlapsSel(below);
+  const top = canAbove ? above : (canBelow ? below : (below <= maxTop ? below : clamp(above, topMin, maxTop)));
+  el.style.left = Math.round(left) + 'px';
+  el.style.top = Math.round(top) + 'px';
+}
+
+function updateGlancePreview(cardId) {
+  const el = $('#glance-preview');
+  if (!el) return;
+  if (!cardId || camera.scale >= .6 || gesture || layoutDraft || inlineEdit || modalOpen() ||
+      openPopover || openSelectionSubPopover || openSourceCardId || !contextMenu.hidden) {
+    hideGlancePreview();
+    return;
+  }
+  const node = nodeBy(cardId);
+  const view = cardIndex.get(cardId);
+  if (!node || !view || view.element.hidden) {
+    hideGlancePreview();
+    return;
+  }
+  glancePreviewId = cardId;
+  const settings = board().settings;
+  const status = node.status ? settings.statuses.find(item => item.id === node.status) : null;
+  const childCount = hierarchy?.children.get(cardId)?.length || 0;
+  const parts = [];
+  if (status || childCount) {
+    const meta = document.createElement('div');
+    meta.className = 'glance-preview-meta';
+    if (status) {
+      const badge = document.createElement('span');
+      badge.className = 'glance-preview-status';
+      const dot = document.createElement('i');
+      dot.style.setProperty('--chip-ink', status.color);
+      badge.append(dot, status.name);
+      meta.append(badge);
+    }
+    if (childCount) {
+      const count = document.createElement('span');
+      count.textContent = (status ? '· ' : '') + childCount + ' 个子项';
+      meta.append(count);
+    }
+    parts.push(meta);
+  }
+  const title = document.createElement('p');
+  title.className = 'glance-preview-title';
+  const profile = cardProfile(node);
+  const bodyLines = node.body.trim().split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  title.textContent = node.title.trim() || bodyLines[0] || (profile === 'empty' ? '待补充' : '未命名卡片');
+  parts.push(title);
+  const excerptLines = (node.title.trim() ? bodyLines : bodyLines.slice(1)).slice(0, 3);
+  if (excerptLines.length) {
+    const excerpt = document.createElement('p');
+    excerpt.className = 'glance-preview-body';
+    excerpt.textContent = excerptLines.join('\n').slice(0, 240);
+    parts.push(excerpt);
+  }
+  const accent = node.tone === 'topic' ? (settings.appearance.accent || colors.topic) : (colors[node.tone] || settings.appearance.accent);
+  el.style.setProperty('--glance-accent', accent);
+  el.replaceChildren(...parts);
+  el.hidden = false;
+  positionGlancePreview();
+}
+
 function updateHoverHighlight() {
+  if (hoveredCardId && (!nodeBy(hoveredCardId) || visibility.hidden.has(hoveredCardId))) hoveredCardId = null;
   const focusId = hoveredCardId || (selection.kind === 'cards' && selection.ids.size === 1 ? [...selection.ids][0] : null);
   const activeHover = !!(hoveredCardId && !gesture && !layoutDraft && !inlineEdit);
   viewport.classList.toggle('has-hover-focus', activeHover);
@@ -7074,6 +7412,7 @@ function updateHoverHighlight() {
     item.classList.toggle('is-connected', connected);
     item.firstElementChild?.classList.toggle('is-connected', connected);
   }
+  updateGlancePreview(activeHover ? hoveredCardId : null);
 }
 
 function renderBreadcrumbs() {
@@ -7234,6 +7573,7 @@ function openSourcePopover(cardId) {
     return;
   }
   closePopover();
+  hideGlancePreview();
   if (openSourceCardId && openSourceCardId !== cardId) closeSourcePopover();
   openSourceCardId = cardId;
   renderSourcePopoverContent(node);
@@ -7746,6 +8086,7 @@ function openNote(node, isNew = false, parent = null) {
   closeSelectionSubPopovers();
   closeSourcePopover();
   closeContextMenu();
+  hideGlancePreview();
   modalNote = { node, isNew, parent, tone: node.tone, checkpointed: false, bodyChanged: false, imageJob: null };
   $('#note-heading').textContent = isNew ? (parent ? '新建分支' : '新建卡片') : '编辑卡片';
   noteTitle.value = node.title;
@@ -7798,6 +8139,7 @@ function syncNote() {
       addEdge(parent.id, node.id, 'branch');
       board().settings.folded = board().settings.folded.filter(id => id !== parent.id);
     }
+    CanvasViews.ensureVisible([node.id]);
     modalNote.isNew = false;
     selection = { kind: 'cards', ids: new Set([node.id]) };
   }
@@ -8159,7 +8501,8 @@ function handleChecklistClickInEditor(event, container, editCallback) {
   const li = event.target.closest?.('li[data-done]');
   if (!li || !container.contains(li)) return;
   const rect = li.getBoundingClientRect();
-  if (event.clientX - rect.left <= 22) {
+  const scale = container.closest('#world') ? camera.scale : 1;
+  if (event.clientX - rect.left <= 22 * scale) {
     event.preventDefault();
     li.setAttribute('data-done', li.getAttribute('data-done') === 'true' ? 'false' : 'true');
     editCallback();
@@ -8192,6 +8535,7 @@ function syncInline() {
     }
     inlineEdit.isNew = false;
     selection = { kind: 'cards', ids: new Set([node.id]) };
+    if (CanvasViews.ensureVisible([node.id])) render();
   }
   queueSave();
 }
@@ -8251,10 +8595,12 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
   closeSelectionSubPopovers();
   closeSourcePopover();
   closeContextMenu();
+  hideGlancePreview();
   if (isNew) {
     if (!board().nodes.includes(node) && !cardIndex.has(node.id)) {
       const createdView = createCardView(node.id);
       createdView.element.dataset.tone = node.tone;
+      createdView.element.dataset.depth = parent ? String(Math.min((nodeDepths.get(parent.id) ?? 0) + 1, 3)) : '0';
       createdView.element.dataset.profile = 'note';
       placeCard(createdView.element, node);
     }
@@ -8521,6 +8867,7 @@ function duplicateSelected() {
   checkpoint();
   board().nodes.push(...copied);
   board().edges.push(...links);
+  CanvasViews.ensureVisible([...ids.values()]);
   selection = { kind: 'cards', ids: new Set(ids.values()) };
   reveal(copied[0]);
   render();
@@ -8532,6 +8879,8 @@ function removeSelected() {
   const ids = new Set(noteIds());
   const edge = chosenEdge();
   if (!ids.size && !edge) return;
+  hoveredCardId = null;
+  hideGlancePreview();
   checkpoint();
   board().nodes = board().nodes.filter(node => !ids.has(node.id));
   board().edges = board().edges.filter(link => link.id !== edge?.id && !ids.has(link.from) && !ids.has(link.to));
@@ -8549,6 +8898,7 @@ function removeSelected() {
 
 function openText(kind, initial = '', id = null, triggerKey = null) {
   closePopover();
+  hideGlancePreview();
   modalText = { kind, id };
   const wording = {
     'board-new': ['新建空白画布', '画布名称', '给这张画布起个名字'],
@@ -8594,6 +8944,8 @@ function switchBoard(id) {
   cancelPositionAnimation();
   closeContextMenu();
   closeSelectionSubPopovers();
+  hoveredCardId = null;
+  hideGlancePreview();
   if (gesture) cancelGesture();
   if (layoutDraft) cancelLayout();
   CanvasViews.reset();
@@ -8679,6 +9031,7 @@ function closePopover() {
 function togglePopover(key, forceOpen = false) {
   const previous = openPopover;
   closePopover();
+  hideGlancePreview();
   if (previous === key && !forceOpen) return;
   const { panel, toggle } = popovers[key];
   openPopover = key;
@@ -8950,6 +9303,7 @@ function goToMatch(index) {
     runAction(entry.command.id, entry.command.run);
     return;
   }
+  if (layoutDraft) cancelLayout();
   setMode('select');
   if (entry.kind === 'board') {
     if (entry.board.id !== workspace.activeId) switchBoard(entry.board.id);
@@ -9048,13 +9402,34 @@ const CanvasExport = (() => {
   const cjk = '\u2E80-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F';
   const tokenPattern = new RegExp(`[${cjk}]|[^\\s${cjk}]+\\s*|\\s+`, 'g');
 
+  function srgbToRgb(text) {
+    const srgb = text.match(/^color\(\s*srgb\s+([\d.eE+-]+%?)\s+([\d.eE+-]+%?)\s+([\d.eE+-]+%?)(?:\s*\/\s*([\d.eE+-]+%?))?\s*\)$/i);
+    if (!srgb) return null;
+    const ch = raw => {
+      const num = raw.endsWith('%') ? parseFloat(raw) / 100 : parseFloat(raw);
+      return Math.round(clamp(num, 0, 1) * 255);
+    };
+    const r = ch(srgb[1]);
+    const g = ch(srgb[2]);
+    const b = ch(srgb[3]);
+    if (srgb[4] !== undefined) {
+      const aRaw = srgb[4];
+      const a = clamp(aRaw.endsWith('%') ? parseFloat(aRaw) / 100 : parseFloat(aRaw), 0, 1);
+      if (a < 0.999) return `rgba(${r}, ${g}, ${b}, ${Math.round(a * 1000) / 1000})`;
+    }
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
   function color(value, fallback = 'rgba(0, 0, 0, 0)') {
     const text = (value || '').trim();
     if (!text) return fallback;
+    const converted = srgbToRgb(text);
+    if (converted) return converted;
     if (/^(#|rgb)/i.test(text)) return text;
     measure.fillStyle = '#010203';
     measure.fillStyle = text;
-    return measure.fillStyle === '#010203' ? fallback : measure.fillStyle;
+    if (measure.fillStyle === '#010203') return fallback;
+    return srgbToRgb(measure.fillStyle) || measure.fillStyle;
   }
 
   const isTransparent = value => !value || value === 'transparent' || /rgba\([^)]*,\s*0(\.0+)?\)$/.test(value);
@@ -9166,6 +9541,17 @@ const CanvasExport = (() => {
       fill, fill2, stroke: color(style.borderTopColor), strokeWidth: parseFloat(style.borderTopWidth) || 0,
       shadow: !isTransparent(fill),
     });
+    const before = getComputedStyle(card, '::before');
+    if (before.content && before.content !== 'none' && before.display !== 'none') {
+      const bw = parseFloat(before.width) || 0;
+      const bFill = color(before.backgroundColor);
+      if (bw > 0 && !isTransparent(bFill)) {
+        const bTop = Number.isFinite(parseFloat(before.top)) ? parseFloat(before.top) : 12;
+        const bBottom = Number.isFinite(parseFloat(before.bottom)) ? parseFloat(before.bottom) : 12;
+        const bh = Math.max(0, h - bTop - bBottom);
+        if (bh > 0) shapes.push({ type: 'rect', x, y: y + bTop, w: bw, h: bh, r: 1.5, fill: bFill });
+      }
+    }
     const titleBox = !view.title.hidden && boxIn(view.title, card);
     if (titleBox) {
       const font = fontOf(view.title);
@@ -9231,6 +9617,17 @@ const CanvasExport = (() => {
         for (const child of view.body.childNodes) emitBodyNode(child);
       }
     }
+    const doneBox = !view.doneToggle.hidden && getComputedStyle(view.doneToggle).display !== 'none' && boxIn(view.doneToggle, card);
+    if (doneBox && doneBox.w && doneBox.h) {
+      const doneStyle = getComputedStyle(view.doneToggle);
+      const font = fontOf(view.doneToggle);
+      const glyph = card.hasAttribute('data-show-done') ? '▾ ' : '▸ ';
+      const opacity = parseFloat(doneStyle.opacity);
+      shapes.push({
+        ...textShape(x, y, { ...doneBox, w: Math.max(doneBox.w + 12, w - doneBox.x - 12) }, view.doneToggle, glyph + view.doneToggle.textContent.trim(), 1, font),
+        opacity: Number.isFinite(opacity) && opacity < 1 ? opacity : undefined,
+      });
+    }
     if (!view.status.hidden) {
       const dot = view.status.querySelector('i');
       const dotBox = dot && boxIn(dot, card);
@@ -9284,7 +9681,7 @@ const CanvasExport = (() => {
 
     const layout = displayedLayout();
     const layoutGuides = layout.guides || [];
-    const includeGuides = layoutGuides.length > 0 && (!wanted || current.nodes.every(node => visibility.hidden.has(node.id) || wanted.has(node.id)));
+    const includeGuides = !CanvasViews.isFocused() && layoutGuides.length > 0 && (!wanted || current.nodes.every(node => visibility.hidden.has(node.id) || wanted.has(node.id)));
     const matrix = includeGuides && layout.options.mode === 'matrix';
     const canvasBg = color(current.settings.appearance.background, '#f5f6f8');
     if (includeGuides) {
@@ -9336,13 +9733,16 @@ const CanvasExport = (() => {
       shapes.push(...guideLabels);
     }
 
+    const orientedTree = layout.options.rootId && hierarchy.parent.has(layout.options.rootId)
+      ? CanvasLayout.orient(current.nodes, hierarchy, layout.options.rootId)
+      : hierarchy;
     const labels = [];
     for (const edge of current.edges) {
       const from = rects.get(edge.from);
       const to = rects.get(edge.to);
       if (!from || !to) continue;
       const style = edgeStyle(edge);
-      const curve = branchEdgeCurve(edge, from, to, rects, hierarchy, layout.options, style.shape);
+      const curve = branchEdgeCurve(edge, from, to, rects, orientedTree, layout.options, style.shape);
       shapes.push({
         type: 'path', d: curve.path, color: color(style.color, '#64748b'), width: style.width,
         dash: lineDashes[style.dash] || null, round: style.dash === 'dotted',
@@ -9365,12 +9765,14 @@ const CanvasExport = (() => {
     shapes.push(...labels);
     const hadOverview = viewport.classList.contains('is-overview');
     const hadZoomedOut = viewport.classList.contains('is-zoomed-out');
-    viewport.classList.remove('is-overview', 'is-zoomed-out');
+    const hadFar = viewport.classList.contains('is-far');
+    viewport.classList.remove('is-overview', 'is-zoomed-out', 'is-far');
     try {
       for (const node of nodes) cardShapes(node, cardIndex.get(node.id), shapes);
     } finally {
       viewport.classList.toggle('is-overview', hadOverview);
       viewport.classList.toggle('is-zoomed-out', hadZoomedOut);
+      viewport.classList.toggle('is-far', hadFar);
     }
 
     const left = Math.min(...boxes.map(box => box.x)) - padding;
@@ -9783,11 +10185,19 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const tagMap = new Map(current.settings.tags.map(t => [t.id, t]));
   const linkedSubBoards = new Set(workspace.boards.flatMap(b => b.nodes.map(n => n.subBoardId).filter(Boolean)));
   const existingBoards = new Map(workspace.boards.map(b => [b.id, b]));
+  const ancestors = new Set([current.id]);
+  for (let parentId = current.settings?.parentId; parentId && !ancestors.has(parentId); ) {
+    ancestors.add(parentId);
+    parentId = existingBoards.get(parentId)?.settings?.parentId;
+  }
   const box = boundsOf(payload.nodes);
   const centerX = box ? (box.left + box.right) / 2 : 0;
   const centerY = box ? (box.top + box.bottom) / 2 : 0;
   const idMap = new Map(payload.nodes.map(n => [n.id, CanvasData.uid()]));
-  checkpoint();
+  const willRebindSubBoard = payload.nodes.some(n =>
+    n.subBoardId && existingBoards.has(n.subBoardId) && !ancestors.has(n.subBoardId) && !linkedSubBoards.has(n.subBoardId)
+  );
+  checkpoint(false, false, willRebindSubBoard);
   for (const st of payload.statuses || []) {
     if (!statusMap.has(st.id)) current.settings.statuses.push(structuredClone(st));
   }
@@ -9798,7 +10208,7 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
     const copy = structuredClone(n);
     copy.id = idMap.get(n.id);
     if (copy.subBoardId) {
-      if (!existingBoards.has(copy.subBoardId) || copy.subBoardId === current.id || linkedSubBoards.has(copy.subBoardId)) {
+      if (!existingBoards.has(copy.subBoardId) || ancestors.has(copy.subBoardId) || linkedSubBoards.has(copy.subBoardId)) {
         delete copy.subBoardId;
       } else {
         existingBoards.get(copy.subBoardId).settings.parentId = current.id;
@@ -9813,10 +10223,11 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   }));
   current.nodes.push(...inserted);
   current.edges.push(...edges);
+  const viewChanged = CanvasViews.ensureVisible(inserted.map(n => n.id));
   selection = { kind: 'cards', ids: new Set(inserted.map(n => n.id)) };
   render();
   save();
-  toast(`已粘贴 ${inserted.length} 张卡片`);
+  if (!viewChanged) toast(`已粘贴 ${inserted.length} 张卡片`);
 }
 
 async function handleCanvasPaste(clipboardData) {
@@ -9835,11 +10246,13 @@ async function handleCanvasPaste(clipboardData) {
       const clean = richContent(img.outerHTML);
       node.body = clean.text;
       node.richBody = clean.html;
+      let viewChanged = false;
       applyChange(() => {
         board().nodes.push(node);
+        viewChanged = CanvasViews.ensureVisible([node.id]);
         selection = { kind: 'cards', ids: new Set([node.id]) };
       });
-      toast('已从剪贴板新建图片卡片');
+      if (!viewChanged) toast('已从剪贴板新建图片卡片');
     } catch (error) {
       toast(error.message || '无法读取剪贴板图片', 'error');
     }
@@ -9871,12 +10284,14 @@ async function handleCanvasPaste(clipboardData) {
       n.x = coordinate(n.x + ox);
       n.y = coordinate(n.y + oy);
     }
+    let viewChanged = false;
     applyChange(() => {
       board().nodes.push(...tree.nodes);
       board().edges.push(...tree.edges);
+      viewChanged = CanvasViews.ensureVisible(tree.nodes.map(n => n.id));
       selection = { kind: 'cards', ids: new Set(tree.nodes.map(n => n.id)) };
     });
-    toast(`已自动解析 Markdown 生成 ${tree.nodes.length} 张卡片导图`);
+    if (!viewChanged) toast(`已自动解析 Markdown 生成 ${tree.nodes.length} 张卡片导图`);
     return;
   }
   const safeUrl = safeExternalUrl(text.trim());
@@ -9890,11 +10305,13 @@ async function handleCanvasPaste(clipboardData) {
     node.title = sliceChars(lines[0], 80);
     node.body = lines.length > 1 ? lines.slice(1).join('\n') : ([...lines[0]].length > 80 ? lines[0] : '');
   }
+  let viewChanged = false;
   applyChange(() => {
     board().nodes.push(node);
+    viewChanged = CanvasViews.ensureVisible([node.id]);
     selection = { kind: 'cards', ids: new Set([node.id]) };
   });
-  toast('已粘贴新建卡片');
+  if (!viewChanged) toast('已粘贴新建卡片');
 }
 
 function selectionToMarkdownFromPayload(payload) {
@@ -10002,6 +10419,7 @@ function extractToSubBoard() {
     current.settings.folded = current.settings.folded.filter(id => !movedSet.has(id));
     for (const frame of current.settings.frames) frame.members = frame.members.filter(id => !movedSet.has(id));
     if (movedSet.has(current.settings.layout.rootId)) current.settings.layout.rootId = null;
+    CanvasViews.ensureVisible([portal.id]);
     selection = { kind: 'cards', ids: new Set([portal.id]) };
   }
   current.settings.frames = current.settings.frames.filter(frame => frame.members.length || frame.box);
@@ -10011,6 +10429,7 @@ function extractToSubBoard() {
 }
 
 function openLightbox(src, alt) {
+  hideGlancePreview();
   lightboxScale = 1;
   lightboxImage.src = src;
   lightboxImage.alt = alt || '图片预览';
@@ -10103,6 +10522,7 @@ function beginPointer(event) {
     return;
   }
   if (event.button === 2) return;
+  hideGlancePreview();
   if (mode === 'link') {
     gesture = { ...base, kind: 'link-tap', id: cardId };
     event.preventDefault();
@@ -10112,7 +10532,7 @@ function beginPointer(event) {
   if (frameResizeId) {
     CanvasInspector.close();
     const frame = CanvasViews.selectFrame(frameResizeId);
-    const startBox = frame ? CanvasViews.frameRect(frame) : null;
+    const startBox = frame ? CanvasViews.frameRect(frame, null, visibility.hidden) : null;
     if (!frame || !startBox) return;
     gesture = { ...base, kind: 'frame-resize', frameId: frameResizeId, startBox };
     event.preventDefault();
@@ -10123,7 +10543,7 @@ function beginPointer(event) {
     CanvasInspector.close();
     const frame = CanvasViews.selectFrame(frameId);
     if (!frame) return;
-    const fullBox = CanvasViews.frameRect(frame);
+    const fullBox = CanvasViews.frameRect(frame, null, visibility.hidden);
     gesture = {
       ...base, kind: 'drag', keepGroup: true, frame: frameId,
       startBox: fullBox ? { ...fullBox } : (frame.box ? { ...frame.box } : null),
@@ -10156,7 +10576,7 @@ function beginPointer(event) {
       setSelected([cardId]);
     }
     const { layout, guides, statuses } = board().settings;
-    const matrix = CanvasLayout.matrixTracks(layout, guides, statuses);
+    const matrix = CanvasViews.isFocused() ? null : CanvasLayout.matrixTracks(layout, guides, statuses);
     gesture = {
       ...base, kind: 'drag', id: cardId, keepGroup: event.shiftKey,
       nodes: new Map(noteIds().map(id => [id, nodeBy(id)])),
@@ -10307,6 +10727,8 @@ function movePointer(event) {
   if (gesture?.kind === 'pinch') {
     const fingers = [...touches.values()].slice(0, 2);
     if (fingers.length < 2) return;
+    closeSelectionSubPopovers();
+    hideGlancePreview();
     const distance = Math.hypot(fingers[1].x - fingers[0].x, fingers[1].y - fingers[0].y);
     zoomTo(gesture.scale * distance / gesture.distance, midpoint(...fingers), gesture.anchor);
     return;
@@ -10323,6 +10745,8 @@ function movePointer(event) {
   if (!active.moved) {
     active.moved = true;
     viewport.setPointerCapture(event.pointerId);
+    closeSelectionSubPopovers();
+    hideGlancePreview();
     paintMode();
   }
   if (active.kind === 'pan') {
@@ -10494,14 +10918,18 @@ function endPointer(event) {
       checkpoint();
       frame.box = active.nextBox;
       const existingHiddenMembers = new Set(frame.members.filter(id => visibility.hidden.has(id)));
+      const foldedSet = new Set(board().settings.folded);
+      const foldedHidden = CanvasLayout.foldedDescendants(hierarchy, board().settings.folded);
       frame.members = board().nodes.filter(node => {
         let targetNode = node;
         if (visibility.hidden.has(node.id)) {
           if (!existingHiddenMembers.has(node.id)) return false;
+          if (!foldedHidden.has(node.id)) return true;
           let anc = hierarchy.parent.get(node.id);
           while (anc && visibility.hidden.has(anc)) anc = hierarchy.parent.get(anc);
-          targetNode = anc ? nodeBy(anc) : null;
-          if (!targetNode) return false;
+          if (!anc || !foldedSet.has(anc)) return true;
+          targetNode = nodeBy(anc);
+          if (!targetNode) return true;
         }
         const rect = cardRect(targetNode);
         const cx = rect.x + rect.w / 2;
@@ -10539,7 +10967,7 @@ function endPointer(event) {
       }
     }
     const preDragBoxes = active.kind === 'drag' && !active.frame && active.moved && board().settings.frames.length
-      ? new Map(board().settings.frames.map(frame => [frame.id, CanvasViews.frameRect(frame)]))
+      ? new Map(board().settings.frames.map(frame => [frame.id, CanvasViews.frameRect(frame, null, visibility.hidden)]))
       : null;
     checkpoint();
     for (const [id, update] of active.positions) Object.assign(nodeBy(id), update);
@@ -10730,13 +11158,14 @@ const action = {
   'close-note': finishNote,
   'close-text': () => textDialog.close(),
   'close-lightbox': () => lightboxDialog.close(),
-  help: () => helpDialog.showModal(),
+  help: () => { hideGlancePreview(); helpDialog.showModal(); },
   'close-help': () => helpDialog.close(),
 };
 
 const layoutSafeActions = new Set(['arrange', 'fit', 'zoom-in', 'zoom-out', 'zoom-reset', 'toggle-map']);
 
 function runAction(name, run = action[name]) {
+  hideGlancePreview();
   if (inlineEdit && name !== 'undo' && name !== 'redo' && name !== 'new-card') finishInline({ keepFocus: true });
   if (layoutDraft && !layoutSafeActions.has(name)) cancelLayout();
   if (openPopover && !['boards', 'files', 'search'].includes(name)) closePopover();
@@ -10840,9 +11269,15 @@ function openContextMenu(event) {
     const edge = edgeBy(edgeId);
     addContextItem('编辑连线说明', () => openText('edge', edge.label, edge.id));
     const currentStyle = edgeStyle(edge);
+    const nextDash = currentStyle.dash === 'dashed' ? 'solid' : 'dashed';
     addContextItem(currentStyle.dash === 'dashed' ? '切换为实线' : '切换为虚线', () => {
       applyChange(() => {
-        edge.style = { ...edge.style, dash: currentStyle.dash === 'dashed' ? 'solid' : 'dashed' };
+        const inheritedDash = edgeStyle({ ...edge, style: undefined }).dash;
+        const next = { ...edge.style };
+        if (nextDash === inheritedDash) delete next.dash;
+        else next.dash = nextDash;
+        if (Object.keys(next).length) edge.style = next;
+        else delete edge.style;
       });
     });
     addContextItem('调整连线样式', () => CanvasInspector.open(edge.kind === 'branch' ? 'branch' : 'link'));
@@ -10869,6 +11304,9 @@ function openContextMenu(event) {
     }
   }
 
+  hideGlancePreview();
+  contextMenu.style.left = '0px';
+  contextMenu.style.top = '0px';
   contextMenu.hidden = false;
   const menuRect = contextMenu.getBoundingClientRect();
   const x = Math.min(event.clientX, window.innerWidth - menuRect.width - 10);
@@ -10932,10 +11370,11 @@ viewport.addEventListener('pointerover', event => {
     updateHoverHighlight();
     return;
   }
+  const delay = camera.scale < .6 && glancePreviewId ? 40 : 140;
   hoverFocusTimer = setTimeout(() => {
     hoveredCardId = id;
     updateHoverHighlight();
-  }, 160);
+  }, delay);
 });
 viewport.addEventListener('pointerout', event => {
   const next = event.relatedTarget?.closest?.('[data-card]')?.dataset.card || null;
@@ -10976,6 +11415,7 @@ viewport.addEventListener('click', event => {
   const doneToggle = event.target.closest('[data-done-toggle]');
   if (doneToggle && !layoutDraft) {
     doneToggle.closest('.card').toggleAttribute('data-show-done');
+    focusCanvas();
     return;
   }
   const sourcesBtn = event.target.closest('[data-card-sources]');
@@ -11013,6 +11453,8 @@ viewport.addEventListener('dblclick', event => {
 viewport.addEventListener('wheel', event => {
   event.preventDefault();
   if (gesture) return;
+  closeSelectionSubPopovers();
+  hideGlancePreview();
   cancelCameraAnimation();
   const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
   if (event.ctrlKey || event.metaKey) {
@@ -11027,6 +11469,8 @@ viewport.addEventListener('wheel', event => {
 let nativeGesture = null;
 viewport.addEventListener('gesturestart', event => {
   event.preventDefault();
+  closeSelectionSubPopovers();
+  hideGlancePreview();
   cancelCameraAnimation();
   const { width, height } = viewportSize();
   const local = Number.isFinite(event.clientX) && Number.isFinite(event.clientY) ? point(event) : { x: width / 2, y: height / 2 };
@@ -11122,6 +11566,18 @@ document.addEventListener('keydown', event => {
     focusCanvas();
     return;
   }
+  if (key === 'escape' && !$('#inspector-panel').hidden) {
+    event.preventDefault();
+    CanvasInspector.close();
+    focusCanvas();
+    return;
+  }
+  if (key === 'escape' && !$('#views-panel').hidden) {
+    event.preventDefault();
+    CanvasViews.close();
+    focusCanvas();
+    return;
+  }
   if (layoutDraft || isTextInputEl(event.target)) return;
   if (mod) {
     if (key === 'z') {
@@ -11207,8 +11663,18 @@ window.addEventListener('blur', () => {
   touches.clear();
   cancelGesture();
   releaseSpace();
+  clearTimeout(hoverFocusTimer);
+  if (hoveredCardId) {
+    hoveredCardId = null;
+    updateHoverHighlight();
+  }
+  hideGlancePreview();
 });
-window.addEventListener('resize', paintView);
+window.addEventListener('resize', () => {
+  closeSelectionSubPopovers();
+  hideGlancePreview();
+  paintView();
+});
 window.addEventListener('pagehide', () => {
   if (inlineEdit) syncInline();
   save();

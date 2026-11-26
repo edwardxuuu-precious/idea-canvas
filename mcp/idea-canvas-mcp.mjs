@@ -1021,7 +1021,7 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
     case 'canvas_get_cards': {
       const state = await loadWorkspace(cfg);
       const board = resolveBoard(state.space, args);
-      const { nodeMap, children, parentOf } = buildBranchChildrenMap(board);
+      const { nodeMap, children, parentOf } = buildOutlineTree(board);
       const limit = Number.isInteger(args.limit) ? Math.max(0, Math.min(args.limit, 200)) : 50;
       let candidateIds = null;
 
@@ -1222,7 +1222,7 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
               const nextBody = String(spec.body);
               if (nextBody !== node.body) {
                 node.body = nextBody;
-                const imgs = (node.richBody || '').match(/<img\b[^>]*>/gi) || [];
+                const imgs = (node.richBody || '').match(/<img\b(?:"[^"]*"|'[^']*'|[^>"'])*>/gi) || [];
                 if (imgs.length) {
                   node.richBody = imgs.join('') + (nextBody ? bodyToRichHtml(nextBody) : '');
                 } else {

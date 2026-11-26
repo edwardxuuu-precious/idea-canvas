@@ -23,11 +23,12 @@ function paintView() {
   viewport.style.backgroundPosition = (left % spacing) + 'px ' + (top % spacing) + 'px';
   viewport.classList.toggle('is-overview', camera.scale < .6);
   viewport.classList.toggle('is-zoomed-out', camera.scale < .48);
-  viewport.classList.toggle('is-far', camera.scale < .3);
   viewport.style.setProperty('--glance-scale', Math.max(.025, Math.round(camera.scale * 40) / 40));
   $('#zoom-value').textContent = Math.round(camera.scale * 100) + '%';
   positionSelectionBar();
   positionSourcePopover();
+  if (camera.scale >= .6 || gesture) hideGlancePreview();
+  else positionGlancePreview();
   scheduleMap();
 }
 
@@ -163,7 +164,7 @@ function roundedOrthogonalPath(points, maxRadius = 10) {
   return parts.join(' ');
 }
 
-function routedBranchCurve(from, to, siblings, nodeGap = 24) {
+function routedBranchCurve(from, to, siblings, nodeGap = 24, reverse = false) {
   const rightSide = to.x >= from.x + from.w;
   const leftSide = !rightSide && to.x + to.w <= from.x;
   if (!rightSide && !leftSide) return null;
@@ -183,33 +184,41 @@ function routedBranchCurve(from, to, siblings, nodeGap = 24) {
   const laneY = to.y - Math.min(nodeGap, 24) / 2;
   const a = { x: parentEdge + sx * 2, y: from.y + from.h / 2 };
   const b = { x: childEdge - sx * (to.w ? 3 : 0), y: to.y + to.h / 2 };
-  const path = roundedOrthogonalPath([
+  const waypoints = [
     a,
     { x: spineX, y: a.y },
     { x: spineX, y: laneY },
     { x: gutterX, y: laneY },
     { x: gutterX, y: b.y },
     b,
-  ], 10);
+  ];
+  const path = roundedOrthogonalPath(reverse ? waypoints.reverse() : waypoints, 10);
+  const start = { x: a.x, y: a.y, dx: -sx, dy: 0 };
+  const end = { x: b.x, y: b.y, dx: sx, dy: 0 };
   return {
     path,
     label: { x: (spineX + gutterX) / 2, y: laneY },
-    start: { x: a.x, y: a.y, dx: -sx, dy: 0 },
-    end: { x: b.x, y: b.y, dx: sx, dy: 0 },
+    start: reverse ? end : start,
+    end: reverse ? start : end,
   };
 }
 
 function branchEdgeCurve(edge, from, to, rects, tree, layoutOptions, shape) {
   const mode = layoutOptions.mode;
-  const isChild = tree.parent.get(edge.to) === edge.from;
-  if ((mode === 'right' || mode === 'double') && edge.kind === 'branch' && isChild) {
-    const siblings = (tree.children.get(edge.from) || [])
-      .filter(id => id !== edge.to && rects.has(id))
+  const isForward = tree.parent.get(edge.to) === edge.from;
+  const isReverse = !isForward && tree.parent.get(edge.from) === edge.to;
+  if ((mode === 'right' || mode === 'double') && (isForward || isReverse)) {
+    const parentId = isForward ? edge.from : edge.to;
+    const childId = isForward ? edge.to : edge.from;
+    const parentRect = isForward ? from : to;
+    const childRect = isForward ? to : from;
+    const siblings = (tree.children.get(parentId) || [])
+      .filter(id => id !== childId && rects.has(id))
       .map(id => rects.get(id));
-    const routed = routedBranchCurve(from, to, siblings, layoutOptions.nodeGap);
+    const routed = routedBranchCurve(parentRect, childRect, siblings, layoutOptions.nodeGap, isReverse);
     if (routed) return routed;
   }
-  const side = mode === 'down' && isChild && to.y >= from.y + from.h ? 'down' : undefined;
+  const side = mode === 'down' && isForward && to.y >= from.y + from.h ? 'down' : undefined;
   return linkCurve(from, to, false, shape, side);
 }
 
@@ -324,11 +333,15 @@ function ensureEdgeMarker(color) {
 }
 
 function renderEdges(positions = activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions, dirtyNodeIds = null) {
-  const nodes = new Map(effectiveNodes(positions).filter(node => !visibility.hidden.has(node.id)).map(node => [node.id, cardRect(node)]));
+  const effectiveList = effectiveNodes(positions);
+  const nodes = new Map(effectiveList.filter(node => !visibility.hidden.has(node.id)).map(node => [node.id, cardRect(node)]));
   const layout = displayedLayout().options;
+  const orientedTree = layout.rootId && hierarchy.parent.has(layout.rootId)
+    ? CanvasLayout.orient(effectiveList, hierarchy, layout.rootId)
+    : hierarchy;
   const horizontalTree = layout.mode === 'right' || layout.mode === 'double';
   const dirtyParents = dirtyNodeIds && horizontalTree
-    ? new Set([...dirtyNodeIds].map(id => hierarchy.parent.get(id)).filter(Boolean))
+    ? new Set([...dirtyNodeIds].map(id => orientedTree.parent.get(id)).filter(Boolean))
     : null;
   const currentEdges = board().edges;
   const visibleEdgeIds = new Set();
@@ -348,7 +361,7 @@ function renderEdges(positions = activeLayoutPositions || gesture?.positions || 
     const dimmed = visibility.dimmed.has(edge.from) || visibility.dimmed.has(edge.to);
     const active = selection.kind === 'edge' && selection.id === edge.id;
     if (view && dirtyNodeIds && !dirtyNodeIds.has(edge.from) && !dirtyNodeIds.has(edge.to) &&
-        !(edge.kind === 'branch' && dirtyParents?.has(edge.from))) {
+        !(dirtyParents?.has(edge.from) || dirtyParents?.has(edge.to))) {
       view.element.classList.toggle('is-dimmed', dimmed);
       view.path.classList.toggle('selected', active);
       continue;
@@ -357,7 +370,7 @@ function renderEdges(positions = activeLayoutPositions || gesture?.positions || 
     const style = edgeStyle(edge);
     const from = nodes.get(edge.from);
     const to = nodes.get(edge.to);
-    const curve = branchEdgeCurve(edge, from, to, nodes, hierarchy, layout, style.shape);
+    const curve = branchEdgeCurve(edge, from, to, nodes, orientedTree, layout, style.shape);
 
     if (!view) {
       const element = svg('g', { 'data-edge': edge.id, role: 'group' });
@@ -603,7 +616,7 @@ function decorateCard(view, node, settings, statusBy, tagBy) {
   }
   if (style.shape) element.dataset.shape = style.shape;
   else delete element.dataset.shape;
-  element.toggleAttribute('data-custom-fill', !!style.fill);
+  element.toggleAttribute('data-custom-fill', !!node.style?.fill);
   element.toggleAttribute('data-sized', !!style.size);
   const status = statusBy.get(node.status);
   const tags = (node.tags || []).map(id => tagBy.get(id)).filter(Boolean);
@@ -720,7 +733,8 @@ function renderCards(nodes = board().nodes) {
     view.element.setAttribute('aria-label', CanvasData.tone[node.tone].label + ' · ' + titleOf(node));
     view.title.hidden = !node.title.trim() && (profile === 'note' || profile === 'image');
     view.title.textContent = profile === 'empty' ? '待补充' : titleOf(node);
-    view.glance.textContent = view.title.textContent;
+    const bodyLead = node.body.trim().split(/\r?\n/).map(line => line.trim()).find(Boolean) || '';
+    view.glance.textContent = node.title.trim() || bodyLead || (profile === 'empty' ? '待补充' : '未命名卡片');
     const contentChanged = view.plain !== node.body || view.rich !== node.richBody;
     if (contentChanged) {
       view.plain = node.body;
@@ -743,6 +757,7 @@ function renderCards(nodes = board().nodes) {
       const doneCount = view.body.querySelectorAll('.checklist-item[data-done="true"]').length;
       view.doneToggle.hidden = !doneCount;
       if (doneCount) view.doneToggle.textContent = `已完成 ${doneCount} 项`;
+      else view.element.removeAttribute('data-show-done');
     }
     view.body.hidden = !node.body.trim() && !view.body.querySelector('img');
     const prevMetaKey = view.metaKey;
@@ -758,7 +773,7 @@ function renderCards(nodes = board().nodes) {
       view.fold.setAttribute('aria-label', label);
       view.fold.title = label;
     } else delete view.element.dataset.foldSide;
-    placeCard(view.element, node);
+    if (inlineEdit?.node.id !== node.id) placeCard(view.element, node);
     if (contentChanged || prevProfile !== profile || prevDetail !== settings.detail ||
         prevTone !== node.tone || prevDepth !== nextDepth ||
         prevTitle !== view.title.textContent || prevMetaKey !== view.metaKey || prevWidth !== view.element.style.maxWidth) {
@@ -767,7 +782,107 @@ function renderCards(nodes = board().nodes) {
   }
 }
 
+let glancePreviewId = null;
+
+function hideGlancePreview() {
+  const el = $('#glance-preview');
+  if (!el) return;
+  glancePreviewId = null;
+  el.hidden = true;
+  el.style.left = '';
+  el.style.top = '';
+}
+
+function positionGlancePreview() {
+  const el = $('#glance-preview');
+  if (!el || el.hidden || !glancePreviewId) return;
+  const view = cardIndex.get(glancePreviewId);
+  if (!view || view.element.hidden) {
+    hideGlancePreview();
+    return;
+  }
+  const rect = view.element.getBoundingClientRect();
+  const topMin = chromeTopLimit();
+  if (rect.right < 0 || rect.left > window.innerWidth || rect.bottom < topMin || rect.top > window.innerHeight) {
+    hideGlancePreview();
+    return;
+  }
+  el.style.left = '0px';
+  el.style.top = '0px';
+  const w = el.offsetWidth || 260;
+  const h = el.offsetHeight || 72;
+  const left = clamp(rect.left + rect.width / 2 - w / 2, 16, Math.max(16, window.innerWidth - w - 16));
+  const above = rect.top - h - 10;
+  const below = rect.bottom + 10;
+  const maxTop = Math.max(topMin, window.innerHeight - h - 16);
+  const selBar = !$('#selection-tools').hidden ? $('#selection-tools').getBoundingClientRect() : null;
+  const overlapsSel = top => selBar && top < selBar.bottom + 6 && top + h > selBar.top - 6 && left < selBar.right + 6 && left + w > selBar.left - 6;
+  const canAbove = above >= topMin && above <= maxTop && !overlapsSel(above);
+  const canBelow = below >= topMin && below <= maxTop && !overlapsSel(below);
+  const top = canAbove ? above : (canBelow ? below : (below <= maxTop ? below : clamp(above, topMin, maxTop)));
+  el.style.left = Math.round(left) + 'px';
+  el.style.top = Math.round(top) + 'px';
+}
+
+function updateGlancePreview(cardId) {
+  const el = $('#glance-preview');
+  if (!el) return;
+  if (!cardId || camera.scale >= .6 || gesture || layoutDraft || inlineEdit || modalOpen() ||
+      openPopover || openSelectionSubPopover || openSourceCardId || !contextMenu.hidden) {
+    hideGlancePreview();
+    return;
+  }
+  const node = nodeBy(cardId);
+  const view = cardIndex.get(cardId);
+  if (!node || !view || view.element.hidden) {
+    hideGlancePreview();
+    return;
+  }
+  glancePreviewId = cardId;
+  const settings = board().settings;
+  const status = node.status ? settings.statuses.find(item => item.id === node.status) : null;
+  const childCount = hierarchy?.children.get(cardId)?.length || 0;
+  const parts = [];
+  if (status || childCount) {
+    const meta = document.createElement('div');
+    meta.className = 'glance-preview-meta';
+    if (status) {
+      const badge = document.createElement('span');
+      badge.className = 'glance-preview-status';
+      const dot = document.createElement('i');
+      dot.style.setProperty('--chip-ink', status.color);
+      badge.append(dot, status.name);
+      meta.append(badge);
+    }
+    if (childCount) {
+      const count = document.createElement('span');
+      count.textContent = (status ? '· ' : '') + childCount + ' 个子项';
+      meta.append(count);
+    }
+    parts.push(meta);
+  }
+  const title = document.createElement('p');
+  title.className = 'glance-preview-title';
+  const profile = cardProfile(node);
+  const bodyLines = node.body.trim().split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  title.textContent = node.title.trim() || bodyLines[0] || (profile === 'empty' ? '待补充' : '未命名卡片');
+  parts.push(title);
+  const excerptLines = (node.title.trim() ? bodyLines : bodyLines.slice(1)).slice(0, 3);
+  if (excerptLines.length) {
+    const excerpt = document.createElement('p');
+    excerpt.className = 'glance-preview-body';
+    excerpt.textContent = excerptLines.join('\n').slice(0, 240);
+    parts.push(excerpt);
+  }
+  const accent = node.tone === 'topic' ? (settings.appearance.accent || colors.topic) : (colors[node.tone] || settings.appearance.accent);
+  el.style.setProperty('--glance-accent', accent);
+  el.replaceChildren(...parts);
+  el.hidden = false;
+  positionGlancePreview();
+}
+
 function updateHoverHighlight() {
+  if (hoveredCardId && (!nodeBy(hoveredCardId) || visibility.hidden.has(hoveredCardId))) hoveredCardId = null;
   const focusId = hoveredCardId || (selection.kind === 'cards' && selection.ids.size === 1 ? [...selection.ids][0] : null);
   const activeHover = !!(hoveredCardId && !gesture && !layoutDraft && !inlineEdit);
   viewport.classList.toggle('has-hover-focus', activeHover);
@@ -789,6 +904,7 @@ function updateHoverHighlight() {
     item.classList.toggle('is-connected', connected);
     item.firstElementChild?.classList.toggle('is-connected', connected);
   }
+  updateGlancePreview(activeHover ? hoveredCardId : null);
 }
 
 function renderBreadcrumbs() {
@@ -949,6 +1065,7 @@ function openSourcePopover(cardId) {
     return;
   }
   closePopover();
+  hideGlancePreview();
   if (openSourceCardId && openSourceCardId !== cardId) closeSourcePopover();
   openSourceCardId = cardId;
   renderSourcePopoverContent(node);

@@ -6,6 +6,39 @@
 
 ---
 
+## [2.2.0] (Build 18) - 2026-11-26
+
+围绕数百张卡片规模的大画布阅读体验，完成六项视图与布局优化，并在全量自动化测试与真实画布浏览器对比中验证通过。
+
+### 更新清单（更新了什么 / 为什么更新 / 具体做了什么）
+
+1. **树形叶子多列网格与绕行连线（[src/scripts/04-layout.js](src/scripts/04-layout.js)、[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/09-export.js](src/scripts/09-export.js)、[tools/canvas-logic.test.mjs](tools/canvas-logic.test.mjs)）**
+   - **为什么**：水平树形布局下，一个节点下挂 5 到 16 张叶子卡片时会排成一根很长的竖条，纵向翻找成本高。
+   - **做了什么**：在 `CanvasLayout.layers` 新增 `leafGrid` 与 `gridMetrics`，向右与双侧树形模式下将 5 至 9 张纯叶子子节点排为 2 列、10 张及以上排为 3 列，且不挤占更深子树的全局层级列宽；新增 `routedBranchCurve` 与 `branchEdgeCurve` 供渲染与 SVG/PNG 导出共用，让第 2、3 列连线绕行卡片行缝和列缝而不穿过同级卡片。
+2. **按层级区分卡片视觉、去除冗余类型行与右上角状态圆点（[src/styles/03-cards.css](src/styles/03-cards.css)、[src/styles/05-panels.css](src/styles/05-panels.css)、[src/styles/06-editing-and-menus.css](src/styles/06-editing-and-menus.css)、[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)、[src/scripts/09-export.js](src/scripts/09-export.js)）**
+   - **为什么**：旧版全树主题卡共用重色底，顶部重复出现「主题」「素材」字样，底部反复挂出状态标签，整屏视觉重量接近。
+   - **做了什么**：卡片写入 `data-depth`，第 0 至第 2 层主题卡保持深色实底，第 3 层及更深卡片切换为浅底加左侧 3px 强调色条；移除顶部 `.card-type` 行；状态标签改为右上角彩色圆点，采用右对齐反向布局使悬停或选中时向左展开完整名称且圆点位置固定，同步对齐导出坐标。
+3. **按缩放切换标题速览（[src/scripts/07-render.js](src/scripts/07-render.js)、[src/styles/03-cards.css](src/styles/03-cards.css)）**
+   - **为什么**：拉远看全图时正文和标题过小，看不清大结构。
+   - **做了什么**：缩放低于 60% 进入 `is-overview` 后隐藏正文并在卡片内居中放大显示加粗标题；低于 30% 进入 `is-far` 后淡化并隐藏第 3 层及以下卡片的文字，突出上层主干。
+4. **单分支钻入视图与可点击路径（[src/scripts/06-views.js](src/scripts/06-views.js)、[src/index.html](src/index.html)、[src/styles/05-panels.css](src/styles/05-panels.css)）**
+   - **为什么**：旧版聚焦分支仅淡化其余卡片，大画布上干扰仍强，且无法沿层级逐级返回。
+   - **做了什么**：`CanvasViews.focus` 改为隐藏分支外卡片并在目标折叠时自动展开；顶部路径条渲染最多 4 级可点击祖先面包屑和「看全部 Esc」按钮；切换焦点或退出前自动收口原位编辑。
+5. **避让浮动工具栏与浮岛自动让位（[src/scripts/03-workspace-sync.js](src/scripts/03-workspace-sync.js)、[src/scripts/07-render.js](src/scripts/07-render.js)、[src/styles/04-dock-and-dialogs.css](src/styles/04-dock-and-dialogs.css)）**
+   - **为什么**：定位、聚焦或弹出卡片悬浮操作条时容易压住顶栏、底栏或路径条。
+   - **做了什么**：`chromeTopLimit` 统一计入可见的路径条和筛选条底边，新增 `canvasSafeInsets` 供 `reveal` 与 `fitNodes` 使用；`paintChromeCover` 检测卡片位于浮岛下方时自动降低浮岛透明度，悬停或聚焦恢复不透明。
+6. **已完成待办默认收起（[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)、[src/styles/05-panels.css](src/styles/05-panels.css)、[src/styles/06-editing-and-menus.css](src/styles/06-editing-and-menus.css)、[src/scripts/09-export.js](src/scripts/09-export.js)）**
+   - **为什么**：深色卡片上带删除线的已完成待办对比度偏低且拉长卡片高度。
+   - **做了什么**：非编辑状态下默认隐藏已完成待办条目并去除删除线，在 `.card-copy` 中增加独立 `.done-toggle` 按钮按需展开或收起，标题模式与导出自动跳过隐藏条目。
+
+- **验证与回归测试**
+  - `bun test` 扩至 **23 条用例、18,251 次断言**，全部通过；并在真实 907 卡画布浏览器环境下完成新旧对比与边界回归。
+- **版本标记与备份**
+  - Git 提交及标签：`v2.2.0`
+  - 备份归档目录：`dist/releases/v2.2.0-b18/`
+
+---
+
 ## [2.1.4] (Build 17) - 2026-11-26
 
 一次性根治前后端深度审计发现的全部 17 项缺陷，并引入「JS / Swift / MCP 三端统一数据契约测试」「真实 Swift 回环服务协议测试」与「200 步随机状态压测」作为长期结构性防回归护栏。

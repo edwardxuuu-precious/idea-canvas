@@ -348,6 +348,37 @@ test('MCP httpCall surfaces HTTP 413 even on early RST and supports chunked resp
   }
 });
 
+test('MCP httpCall waits for EOF on HTTP/1.1 responses without Content-Length or chunked framing', async () => {
+  const cfg = makeTempEnv();
+  const token = 'c'.repeat(64);
+  fs.writeFileSync(path.join(cfg.dataDir, 'local-api.key'), Buffer.from(token, 'hex'), { mode: 0o600 });
+  const srv = net.createServer((sock) => {
+    let reqBuf = '';
+    sock.on('data', (chunk) => {
+      reqBuf += chunk.toString('utf8');
+      if (!reqBuf.includes('\r\n\r\n')) return;
+      const first = reqBuf.split('\r\n')[0];
+      const body = first.includes('/api/agent/health')
+        ? JSON.stringify({ ok: true, port: srv.address().port, pid: 777 })
+        : JSON.stringify({ revision: 'empty', json: null });
+      const mid = Math.floor(body.length / 2);
+      sock.write(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n${body.slice(0, mid)}`);
+      setTimeout(() => {
+        sock.end(body.slice(mid));
+      }, 35);
+    });
+  });
+  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  try {
+    const status = await runTool('canvas_status', {}, { dataDir: cfg.dataDir, port: srv.address().port });
+    expect(status.mode).toBe('live');
+    expect(status.health.pid).toBe(777);
+  } finally {
+    srv.close();
+    fs.rmSync(cfg.dataDir, { recursive: true, force: true });
+  }
+});
+
 test('MCP stdio framing handles initialize and tools/list over real child process', async () => {
   const cfg = makeTempEnv();
   try {

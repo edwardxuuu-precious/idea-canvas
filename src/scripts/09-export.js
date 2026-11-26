@@ -324,7 +324,61 @@ const CanvasExport = (() => {
       boxes.push(box);
     }
 
-    const downward = displayedLayout().options.mode === 'down';
+    const layout = displayedLayout();
+    const layoutGuides = layout.guides || [];
+    const includeGuides = layoutGuides.length > 0 && (!wanted || current.nodes.every(node => visibility.hidden.has(node.id) || wanted.has(node.id)));
+    const matrix = includeGuides && layout.options.mode === 'matrix';
+    const canvasBg = color(current.settings.appearance.background, '#f5f6f8');
+    if (includeGuides) {
+      const guideColor = color(rootStyle.getPropertyValue('--board-accent'), current.settings.appearance.accent || '#0f766e');
+      const guideInk = color(rootStyle.getPropertyValue('--guide-ink'), guideColor);
+      const tracks = matrix ? CanvasLayout.matrixTracks(layout.options, layoutGuides, current.settings.statuses) : null;
+      const columns = matrix ? layoutGuides.filter(guide => guide.kind === 'line' && guide.x === guide.x2) : [];
+      const matrixLeft = columns.length ? Math.min(...columns.map(guide => guide.x)) : 0;
+      if (columns.length >= 2) {
+        const rowLines = layoutGuides.filter(guide => guide.kind === 'line' && guide.y === guide.y2).sort((a, b) => a.y - b.y);
+        const right = Math.max(...columns.map(guide => guide.x));
+        for (let index = 0; index < rowLines.length - 1; index += 2) {
+          const y = rowLines[index].y;
+          const h = rowLines[index + 1].y - y;
+          shapes.push({ type: 'rect', x: matrixLeft, y, w: right - matrixLeft, h, r: 0, fill: guideColor, fillOpacity: 0.045 });
+          boxes.push({ x: matrixLeft, y, w: right - matrixLeft, h });
+        }
+      }
+      const fontSize = matrix ? 16 : 14;
+      const lineHeight = Math.round(fontSize * 1.25);
+      const guideFont = { css: `650 ${fontSize}px ${family}`, size: fontSize, weight: '650', family, lineHeight, color: guideInk };
+      const guideLabels = [];
+      for (const guide of layoutGuides) {
+        if (guide.kind === 'line') {
+          shapes.push({
+            type: 'path', d: `M ${guide.x} ${guide.y} L ${guide.x2} ${guide.y2}`,
+            color: guideColor, width: 1.4, opacity: 0.42,
+          });
+          boxes.push({
+            x: Math.min(guide.x, guide.x2), y: Math.min(guide.y, guide.y2),
+            w: Math.max(1, Math.abs(guide.x2 - guide.x)), h: Math.max(1, Math.abs(guide.y2 - guide.y)),
+          });
+          continue;
+        }
+        const rowLabel = matrix && columns.length && guide.x < matrixLeft;
+        const track = tracks && (rowLabel ? matrixTrackAt(tracks.rows, guide.y) : matrixTrackAt(tracks.columns, guide.x));
+        const text = track?.name ?? guide.text ?? '';
+        if (!text) continue;
+        measure.font = guideFont.css;
+        const textWidth = Math.ceil(measure.measureText(text).width);
+        const textX = rowLabel ? matrixLeft - 12 - textWidth : guide.x;
+        const textY = rowLabel ? guide.y - lineHeight / 2 : guide.y - fontSize * 0.35 - lineHeight / 2;
+        guideLabels.push({
+          type: 'text', x: textX, y: textY, lines: [text], font: guideFont, lineHeight,
+          halo: matrix ? canvasBg : null,
+        });
+        boxes.push({ x: textX, y: textY, w: Math.max(1, textWidth), h: lineHeight });
+      }
+      shapes.push(...guideLabels);
+    }
+
+    const downward = layout.options.mode === 'down';
     const labels = [];
     for (const edge of current.edges) {
       const from = rects.get(edge.from);
@@ -336,6 +390,7 @@ const CanvasExport = (() => {
       shapes.push({
         type: 'path', d: curve.path, color: color(style.color, '#64748b'), width: style.width,
         dash: lineDashes[style.dash] || null, round: style.dash === 'dotted',
+        opacity: matrix ? 0.28 : undefined,
         start: style.arrow === 'start' || style.arrow === 'both' ? curve.start : null,
         end: style.arrow === 'end' || style.arrow === 'both' ? curve.end : null,
       });
@@ -344,10 +399,11 @@ const CanvasExport = (() => {
       const width = [...text].reduce((sum, char) => sum + (char.charCodeAt(0) > 255 ? 12 : 7), 16);
       const font = { css: `550 11.5px ${family}`, size: 11.5, weight: '550', family, lineHeight: 20, color: inkSoft };
       const box = { x: curve.label.x - width / 2, y: curve.label.y - 10, w: width, h: 20 };
-      labels.push({ type: 'rect', ...box, r: 10, fill: paper, stroke: line, strokeWidth: 1 });
+      const edgeOpacity = matrix ? 0.28 : undefined;
+      labels.push({ type: 'rect', ...box, r: 10, fill: paper, stroke: line, strokeWidth: 1, opacity: edgeOpacity });
       measure.font = font.css;
       const textWidth = measure.measureText(text).width;
-      labels.push({ type: 'text', x: curve.label.x - textWidth / 2, y: box.y, lines: [text], font, lineHeight: 20 });
+      labels.push({ type: 'text', x: curve.label.x - textWidth / 2, y: box.y, lines: [text], font, lineHeight: 20, opacity: edgeOpacity });
       boxes.push(box);
     }
     shapes.push(...labels);
@@ -397,13 +453,16 @@ const CanvasExport = (() => {
         }
         const stroke = shape.strokeWidth && !isTransparent(shape.stroke) ? ` stroke="${escapeXml(shape.stroke)}" stroke-width="${shape.strokeWidth}"` : '';
         if (fill === 'none' && !stroke) continue;
-        const opacity = shape.fillOpacity != null ? ` fill-opacity="${shape.fillOpacity}"` : '';
+        const fillOpacity = shape.fillOpacity != null ? ` fill-opacity="${shape.fillOpacity}"` : '';
+        const opacity = shape.opacity != null ? ` opacity="${shape.opacity}"` : '';
         const shadow = shape.shadow ? ' filter="url(#card-shadow)"' : '';
-        body.push(`<rect x="${round(shape.x)}" y="${round(shape.y)}" width="${round(shape.w)}" height="${round(shape.h)}" rx="${round(shape.r || 0)}" fill="${fill}"${opacity}${stroke}${shadow}/>`);
+        body.push(`<rect x="${round(shape.x)}" y="${round(shape.y)}" width="${round(shape.w)}" height="${round(shape.h)}" rx="${round(shape.r || 0)}" fill="${fill}"${fillOpacity}${opacity}${stroke}${shadow}/>`);
       } else if (shape.type === 'text') {
         const spans = shape.lines.map((text, index) =>
           `<tspan x="${round(shape.x)}" y="${round(shape.y + shape.lineHeight * (index + .5))}">${escapeXml(text)}</tspan>`).join('');
-        body.push(`<text font-family="${escapeXml(shape.font.family)}" font-size="${shape.font.size}" font-weight="${shape.font.weight}" fill="${escapeXml(shape.font.color)}" dominant-baseline="central">${spans}</text>`);
+        const halo = shape.halo ? ` stroke="${escapeXml(shape.halo)}" stroke-width="3" stroke-linejoin="round" paint-order="stroke"` : '';
+        const opacity = shape.opacity != null ? ` opacity="${shape.opacity}"` : '';
+        body.push(`<text font-family="${escapeXml(shape.font.family)}" font-size="${shape.font.size}" font-weight="${shape.font.weight}" fill="${escapeXml(shape.font.color)}"${halo}${opacity} dominant-baseline="central">${spans}</text>`);
       } else if (shape.type === 'image') {
         const id = 'clip-' + serial++;
         defs.push(`<clipPath id="${id}"><rect x="${round(shape.x)}" y="${round(shape.y)}" width="${round(shape.w)}" height="${round(shape.h)}" rx="${shape.r}"/></clipPath>`);
@@ -411,9 +470,10 @@ const CanvasExport = (() => {
       } else if (shape.type === 'path') {
         const dash = shape.dash ? ` stroke-dasharray="${shape.dash}"` : '';
         const cap = shape.round ? ' stroke-linecap="round"' : '';
+        const opacity = shape.opacity != null ? ` opacity="${shape.opacity}"` : '';
         const start = shape.start ? ` marker-start="url(#${marker(shape.color)})"` : '';
         const end = shape.end ? ` marker-end="url(#${marker(shape.color)})"` : '';
-        body.push(`<path d="${shape.d}" fill="none" stroke="${escapeXml(shape.color)}" stroke-width="${shape.width}"${dash}${cap}${start}${end}/>`);
+        body.push(`<path d="${shape.d}" fill="none" stroke="${escapeXml(shape.color)}" stroke-width="${shape.width}"${opacity}${dash}${cap}${start}${end}/>`);
       }
     }
     return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${view.width}" height="${view.height}" viewBox="${round(view.x)} ${round(view.y)} ${view.width} ${view.height}">` +
@@ -467,6 +527,7 @@ const CanvasExport = (() => {
     for (const shape of view.shapes) {
       ctx.save();
       if (shape.type === 'rect') {
+        const baseAlpha = shape.opacity != null ? shape.opacity : 1;
         roundedPath(ctx, shape.x, shape.y, shape.w, shape.h, shape.r || 0);
         if (!isTransparent(shape.fill)) {
           if (shape.fill2) {
@@ -482,26 +543,37 @@ const CanvasExport = (() => {
             ctx.shadowBlur = 12;
             ctx.shadowOffsetY = 4;
           }
-          if (shape.fillOpacity != null) ctx.globalAlpha = shape.fillOpacity;
+          ctx.globalAlpha = baseAlpha * (shape.fillOpacity != null ? shape.fillOpacity : 1);
           ctx.fill();
           ctx.shadowColor = 'transparent';
-          ctx.globalAlpha = 1;
         }
         if (shape.strokeWidth && !isTransparent(shape.stroke)) {
+          ctx.globalAlpha = baseAlpha;
           ctx.lineWidth = shape.strokeWidth;
           ctx.strokeStyle = shape.stroke;
           ctx.stroke();
         }
       } else if (shape.type === 'text') {
+        if (shape.opacity != null) ctx.globalAlpha = shape.opacity;
         ctx.font = shape.font.css;
         ctx.fillStyle = shape.font.color;
         ctx.textBaseline = 'middle';
-        shape.lines.forEach((text, index) => ctx.fillText(text, shape.x, shape.y + shape.lineHeight * (index + .5)));
+        if (shape.halo) {
+          ctx.strokeStyle = shape.halo;
+          ctx.lineWidth = 3;
+          ctx.lineJoin = 'round';
+        }
+        shape.lines.forEach((text, index) => {
+          const ty = shape.y + shape.lineHeight * (index + .5);
+          if (shape.halo) ctx.strokeText(text, shape.x, ty);
+          ctx.fillText(text, shape.x, ty);
+        });
       } else if (shape.type === 'image' && images.has(shape)) {
         roundedPath(ctx, shape.x, shape.y, shape.w, shape.h, shape.r);
         ctx.clip();
         ctx.drawImage(images.get(shape), shape.x, shape.y, shape.w, shape.h);
       } else if (shape.type === 'path') {
+        if (shape.opacity != null) ctx.globalAlpha = shape.opacity;
         ctx.strokeStyle = shape.color;
         ctx.lineWidth = shape.width;
         ctx.lineJoin = 'round';

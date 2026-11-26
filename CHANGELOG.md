@@ -6,6 +6,33 @@
 
 ---
 
+## [2.1.3] (Build 16) - 2026-11-26
+
+集中修复桌面版与离线 HTML 剪贴板及编辑菜单路由、矩阵/时间轴/鱼骨图辅助线导出、MCP 无长度头 HTTP/1.1 响应分包解析，以及原位空卡切换类型后展开大窗丢类型等 4 处缺陷。
+
+### 修复清单（更新了什么 / 为什么更新 / 具体做了什么）
+
+1. **桌面版、离线 HTML 剪贴板写入与 macOS「编辑」菜单路由修复（[src/scripts/10-clipboard.js](src/scripts/10-clipboard.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)、[src/scripts/03-workspace-sync.js](src/scripts/03-workspace-sync.js)、[macos/CanvasApp.swift](macos/CanvasApp.swift)）**
+   - **为什么**：桌面版 `WKWebView` 与双击打开的离线 HTML 均运行在非安全 `file://` 源，直接调用 `navigator.clipboard.writeText` 会报错或静默失败，导致「复制为 Markdown」「复制来源地址」不可用，且 `⌘C` 未同步系统剪贴板使后续 `⌘V` 误粘贴旧文本；同时 macOS 菜单栏的剪切/复制/全选直接绑定 `NSText`，页面未监听 `copy`/`cut` 事件导致桌面端操作画布卡片不生效。
+   - **做了什么**：在 `CanvasApp.swift` 新增 `clipboard-write` 消息通道写入 `NSPasteboard.general`，并将菜单栏「剪切 / 复制 / 全选」接入 `window.ideaCanvasCommand`（在输入框、弹窗、文本选区及原生保存/打开面板 sheet 中自动回退原生 `NSText`）；前端新增统一 `writeClipboardText`（按事件 `clipboardData` → 桌面端 IPC → 安全上下文 `navigator.clipboard` → `file://` 同步离屏 `textarea` `execCommand('copy')` 降级并恢复焦点），并补齐画布 `copy`/`cut` 事件监听。
+2. **分类矩阵、时间轴与鱼骨图导出补齐布局辅助结构（[src/scripts/09-export.js](src/scripts/09-export.js)）**
+   - **为什么**：`CanvasExport.scene` 此前仅导出分区、连线与卡片，未绘制 `displayedLayout().guides`，导致三种结构化布局导出的 PNG / SVG 丢失网格线、行列标题、时间轴序号与鱼骨主轴。
+   - **做了什么**：整图导出时一并绘制矩阵交替行底纹、辅助线、带底色描边的行列标题、时间轴主轴与编号、鱼骨脊柱与分支骨，将其边界纳入导出画幅计算防裁切，并在矩阵导出中保持与画布一致的淡化连线与连线标签；单卡/局部子树导出保持紧凑裁切不混入整表网格。
+3. **MCP 底层 HTTP/1.1 无 `Content-Length` 非分块响应完整性修复（[mcp/idea-canvas-mcp.mjs](mcp/idea-canvas-mcp.mjs)）**
+   - **为什么**：`parseHttpResponse` 在 `data` 事件到达首个 TCP 包时，对既无 `Content-Length` 又非 `chunked` 的响应会直接结算导致多包响应被截断。
+   - **做了什么**：为 `parseHttpResponse` 增加 `eof` 参数，非 `204`/`304` 且无长度头与分块编码的响应等待连接 `end` 后再解析。
+4. **原位新建空卡切换类型后展开大窗或粘贴图片保留卡片类型（[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)）**
+   - **为什么**：新建空卡未输入文字前点击原位工具栏切换类型，再点「大窗」或直接粘贴图片时，`syncInline` 因空新卡提前返回导致已选 `tone` 未写回节点，打开大窗后回退为默认「想法」。
+   - **做了什么**：在展开大窗与粘贴图片收口前同步写入 `targetNode.tone = inlineEdit.tone`，并在 `finishInline`/`cancelInline` 主动清理 `triggerKey` 抑制监听。
+5. **回归测试扩容（[tools/canvas-logic.test.mjs](tools/canvas-logic.test.mjs)、[mcp/idea-canvas-mcp.test.mjs](mcp/idea-canvas-mcp.test.mjs)）**
+   - 新增剪贴板多环境降级路由、矩阵/时间轴/鱼骨图 SVG 引导层导出，以及 MCP 无长度头分包 HTTP 响应测试（共 16 条测试、185 次断言全部通过）。
+
+- **版本标记与备份**
+  - Git 提交及标签：`v2.1.3`
+  - 备份归档目录：`dist/releases/v2.1.3-b16/`
+
+---
+
 ## [2.1.2] (Build 15) - 2026-11-26
 
 围绕多轮代码审计与浏览器端到端压测，集中修复原位编辑生命周期、快捷键防串键、折叠子树与分区联动、多图导出、macOS 隐藏窗口弹窗与路径校验，以及 MCP 本地回环和协议边界问题。

@@ -282,7 +282,7 @@ export function readLocalApiToken(dataDir) {
   return { enabled: true, token: buf.toString('hex') };
 }
 
-function parseHttpResponse(chunks, expectedStatuses) {
+function parseHttpResponse(chunks, expectedStatuses, eof = false) {
   const buf = Buffer.concat(chunks);
   const sep = buf.indexOf('\r\n\r\n');
   if (sep === -1) return { incomplete: true };
@@ -327,10 +327,11 @@ function parseHttpResponse(chunks, expectedStatuses) {
     }
     if (!sawZero) return { incomplete: true };
     bodyBuf = Buffer.concat(parts);
-  } else if (contentLength !== null && bodyBuf.length < contentLength) {
+  } else if (contentLength !== null) {
+    if (bodyBuf.length < contentLength) return { incomplete: true };
+    if (bodyBuf.length > contentLength) bodyBuf = bodyBuf.subarray(0, contentLength);
+  } else if (!eof && statusCode !== 204 && statusCode !== 304) {
     return { incomplete: true };
-  } else if (contentLength !== null && bodyBuf.length > contentLength) {
-    bodyBuf = bodyBuf.subarray(0, contentLength);
   }
   const text = bodyBuf.toString('utf8');
   if (!expectedStatuses.includes(statusCode)) {
@@ -374,7 +375,7 @@ function httpCall(port, method, reqPath, { bearer, body, expectedStatuses }) {
       settleErr(Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' }));
     });
     sock.on('error', (err) => {
-      const parsed = chunks.length ? parseHttpResponse(chunks, expectedStatuses) : null;
+      const parsed = chunks.length ? parseHttpResponse(chunks, expectedStatuses, true) : null;
       if (parsed?.error) return settleErr(parsed.error);
       if (parsed?.result) return settleOk(parsed.result);
       settleErr(err);
@@ -384,13 +385,13 @@ function httpCall(port, method, reqPath, { bearer, body, expectedStatuses }) {
     });
     sock.on('data', (chunk) => {
       chunks.push(chunk);
-      const parsed = parseHttpResponse(chunks, expectedStatuses);
+      const parsed = parseHttpResponse(chunks, expectedStatuses, false);
       if (parsed.error) return settleErr(parsed.error);
       if (parsed.result) return settleOk(parsed.result);
     });
     sock.on('end', () => {
       if (settled) return;
-      const parsed = parseHttpResponse(chunks, expectedStatuses);
+      const parsed = parseHttpResponse(chunks, expectedStatuses, true);
       if (parsed.error) return settleErr(parsed.error);
       if (parsed.result) return settleOk(parsed.result);
       settleErr(new CanvasToolError('本机服务 HTTP 响应不完整。', 'http_error'));

@@ -114,6 +114,7 @@ let hoverFocusTimer = 0;
 let internalClipboard = null;
 let lightboxScale = 1;
 let lastKeyUndoAt = 0;
+let lastKeyClip = { name: '', at: 0 };
 
 function demoWorkspace() {
   const notes = [

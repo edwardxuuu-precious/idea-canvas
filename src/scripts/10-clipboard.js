@@ -62,13 +62,58 @@ function selectionToMarkdown(ids = noteIds()) {
   return formatNodesAsMarkdown(nodeMap, localTree, current.settings.statuses, current.settings.tags);
 }
 
+function copyTextWithExecCommand(text) {
+  let area = null;
+  try {
+    const active = document.activeElement;
+    area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none;';
+    document.body.append(area);
+    area.focus({ preventScroll: true });
+    area.select();
+    area.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    area.remove();
+    area = null;
+    if (active && active !== document.body && document.contains(active) && typeof active.focus === 'function') {
+      active.focus({ preventScroll: true });
+    }
+    return ok;
+  } catch {
+    area?.remove();
+    return false;
+  }
+}
+
+async function writeClipboardText(text, clipboardData = null) {
+  if (clipboardData?.setData) {
+    try {
+      clipboardData.setData('text/plain', text);
+      return true;
+    } catch {}
+  }
+  if (desktop) {
+    try {
+      if (await desktop.postMessage({ operation: 'clipboard-write', text })) return true;
+    } catch {}
+  }
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {}
+  }
+  return copyTextWithExecCommand(text);
+}
+
 async function copySelectionAsMarkdown() {
   const md = selectionToMarkdown();
   if (!md) return;
-  try {
-    await navigator.clipboard.writeText(md);
+  if (await writeClipboardText(md)) {
     toast('已复制结构化 Markdown，可直接粘贴给 AI');
-  } catch {
+  } else {
     toast('无法写入系统剪贴板', 'error');
   }
 }
@@ -164,7 +209,7 @@ function buildInternalClipboard(ids) {
   };
 }
 
-function copySelectionToClipboard(cut = false) {
+function copySelectionToClipboard(cut = false, clipboardData = null) {
   const ids = noteIds();
   if (!ids.length) return;
   const payload = buildInternalClipboard(ids);
@@ -172,9 +217,7 @@ function copySelectionToClipboard(cut = false) {
   const md = selectionToMarkdownFromPayload(payload);
   payload.clipboardText = md;
   internalClipboard = payload;
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(md).catch(() => {});
-  }
+  void writeClipboardText(md, clipboardData);
   if (cut) {
     removeSelected();
     toast(`已剪切 ${payload.nodes.length} 张卡片`);

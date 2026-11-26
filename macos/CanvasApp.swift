@@ -280,6 +280,15 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
                 webView?.underPageBackgroundColor = bgColor
             }
             replyHandler(true, nil)
+        case "clipboard-write":
+            guard let text = body["text"] as? String else {
+                replyHandler(nil, "剪贴板数据无法读取。")
+                return
+            }
+            let clipboard = NSPasteboard.general
+            clipboard.clearContents()
+            let ok = clipboard.setString(text, forType: .string)
+            replyHandler(ok, ok ? nil : "无法写入系统剪贴板。")
         default:
             replyHandler(nil, "无法识别此操作。")
         }
@@ -457,9 +466,13 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     private func runCanvasCommand(_ name: String, nativeFallback: Selector? = nil) {
+        if let nativeFallback, let window, window.attachedSheet != nil || NSApp.keyWindow !== window {
+            NSApp.sendAction(nativeFallback, to: nil, from: nil)
+            return
+        }
         window?.makeKeyAndOrderFront(nil)
         webView?.evaluateJavaScript("window.ideaCanvasCommand ? window.ideaCanvasCommand('\(name)') : 'ignored'") { result, _ in
-            // Text fields keep their own undo history inside WebKit; page script cannot trigger it.
+            // Text fields keep their own undo/clipboard history inside WebKit; page script cannot trigger it.
             if let nativeFallback, result as? String == "native" {
                 NSApp.sendAction(nativeFallback, to: nil, from: nil)
             }
@@ -468,6 +481,9 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     @objc private func canvasUndo() { runCanvasCommand("undo", nativeFallback: Selector(("undo:"))) }
     @objc private func canvasRedo() { runCanvasCommand("redo", nativeFallback: Selector(("redo:"))) }
+    @objc private func canvasCut() { runCanvasCommand("cut", nativeFallback: #selector(NSText.cut(_:))) }
+    @objc private func canvasCopy() { runCanvasCommand("copy", nativeFallback: #selector(NSText.copy(_:))) }
+    @objc private func canvasSelectAll() { runCanvasCommand("select-all", nativeFallback: #selector(NSText.selectAll(_:))) }
     @objc private func canvasExportPNG() { runCanvasCommand("export-png") }
     @objc private func canvasExportSVG() { runCanvasCommand("export-svg") }
     @objc private func canvasExportMarkdown() { runCanvasCommand("export-markdown") }
@@ -513,10 +529,10 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
         redo.target = self
         edit.addItem(redo)
         edit.addItem(.separator())
-        edit.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "剪切", action: #selector(canvasCut), keyEquivalent: "x").target = self
+        edit.addItem(withTitle: "复制", action: #selector(canvasCopy), keyEquivalent: "c").target = self
         edit.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(withTitle: "全选", action: #selector(canvasSelectAll), keyEquivalent: "a").target = self
         editItem.submenu = edit
         menu.addItem(editItem)
 

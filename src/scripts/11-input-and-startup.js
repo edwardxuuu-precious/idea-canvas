@@ -818,8 +818,8 @@ document.addEventListener('click', async event => {
     if (event.target.closest('[data-source-close]')) { closeSourcePopover(); return; }
     const copySrc = event.target.closest('[data-copy-source]')?.dataset.copySource;
     if (copySrc) {
-      try { await navigator.clipboard.writeText(copySrc); toast('已复制来源地址'); }
-      catch { toast('无法写入系统剪贴板', 'error'); }
+      if (await writeClipboardText(copySrc)) toast('已复制来源地址');
+      else toast('无法写入系统剪贴板', 'error');
       return;
     }
     if (!sourcePopover.contains(event.target) && !event.target.closest('[data-card-sources]')) closeSourcePopover();
@@ -1066,12 +1066,15 @@ document.addEventListener('keydown', event => {
       copySelectionAsMarkdown();
     } else if (key === 'c' && noteIds().length) {
       event.preventDefault();
+      lastKeyClip = { name: 'copy', at: performance.now() };
       copySelectionToClipboard(false);
     } else if (key === 'x' && noteIds().length) {
       event.preventDefault();
+      lastKeyClip = { name: 'cut', at: performance.now() };
       copySelectionToClipboard(true);
-    } else if (key === 'a' && document.activeElement === viewport) {
+    } else if (key === 'a' && (document.activeElement === viewport || document.activeElement === document.body)) {
       event.preventDefault();
+      lastKeyClip = { name: 'select-all', at: performance.now() };
       setSelected(board().nodes.filter(node => !visibility.hidden.has(node.id)).map(node => node.id));
     }
     return;
@@ -1201,6 +1204,22 @@ const quickToneButtons = Object.entries(CanvasData.tone).map(([id, { label }]) =
 });
 $('#selection-tones').append(...quickToneButtons);
 
+document.addEventListener('copy', event => {
+  if (modalOpen() || inlineEdit || layoutDraft) return;
+  if (event.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+  if (window.getSelection()?.toString()) return;
+  if (!noteIds().length) return;
+  event.preventDefault();
+  copySelectionToClipboard(false, event.clipboardData);
+});
+document.addEventListener('cut', event => {
+  if (modalOpen() || inlineEdit || layoutDraft) return;
+  if (event.target.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+  if (window.getSelection()?.toString()) return;
+  if (!noteIds().length) return;
+  event.preventDefault();
+  copySelectionToClipboard(true, event.clipboardData);
+});
 document.addEventListener('paste', event => {
   if (modalOpen() || inlineEdit || layoutDraft) return;
   if (event.target.closest('input, textarea, select, [contenteditable]')) return;
@@ -1333,8 +1352,22 @@ if (desktop) {
   const openingWorkspace = JSON.stringify(workspace);
   window.ideaCanvasCommand = name => {
     if (name === 'undo' || name === 'redo') {
-      if (document.activeElement?.closest?.('input, textarea, [contenteditable="true"]')) return 'native';
+      if (document.activeElement?.closest?.('input, textarea, [contenteditable]:not([contenteditable="false"])')) return 'native';
       if (!modalOpen() && performance.now() - lastKeyUndoAt > 400) undoRedo(name);
+      return 'done';
+    }
+    if (name === 'copy' || name === 'cut' || name === 'select-all') {
+      const inEditable = !!document.activeElement?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+      const hasTextSelection = name !== 'select-all' && !!window.getSelection()?.toString();
+      if (inEditable || modalOpen() || inlineEdit || layoutDraft || hasTextSelection) return 'native';
+      if (lastKeyClip.name === name && performance.now() - lastKeyClip.at < 400) return 'done';
+      if (name === 'select-all') {
+        setSelected(board().nodes.filter(node => !visibility.hidden.has(node.id)).map(node => node.id));
+        focusCanvas();
+        return 'done';
+      }
+      if (!noteIds().length) return 'ignored';
+      copySelectionToClipboard(name === 'cut');
       return 'done';
     }
     if (!action[name] || modalOpen()) return 'ignored';

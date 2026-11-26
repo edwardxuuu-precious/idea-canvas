@@ -219,3 +219,190 @@ test('CanvasData.exportHtml preserves clean static shell and escapes embedded wo
   const reparsed = CanvasData.parse(JSON.stringify(payload.workspace));
   expect(reparsed.boards[0].nodes[0].title).toBe('<script>alert(1)</script>&');
 });
+
+test('writeClipboardText routes desktop IPC, secure navigator.clipboard, and non-secure file:// execCommand fallback', async () => {
+  const clipSrc = fs.readFileSync(fileURLToPath(new URL('../src/scripts/10-clipboard.js', import.meta.url)), 'utf8');
+  const start = clipSrc.indexOf('function copyTextWithExecCommand(');
+  const end = clipSrc.indexOf('async function copySelectionAsMarkdown(');
+  const helperSrc = clipSrc.slice(start, end);
+
+  const loadHelper = (env) => new Function(
+    'window', 'navigator', 'document', 'desktop',
+    `${helperSrc}\nreturn { writeClipboardText };`,
+  )(env.window, env.navigator, env.document, env.desktop);
+
+  // 1. Direct clipboardData (copy/cut DOM event)
+  let eventText = '';
+  const { writeClipboardText: writeEvent } = loadHelper({ window: { isSecureContext: false }, navigator: {}, document: {}, desktop: null });
+  expect(await writeEvent('from-event', { setData: (_t, v) => { eventText = v; } })).toBe(true);
+  expect(eventText).toBe('from-event');
+
+  // 2. macOS desktop bridge takes priority over navigator.clipboard on file://
+  let ipcPayload = null;
+  const { writeClipboardText: writeDesktop } = loadHelper({
+    window: { isSecureContext: false },
+    navigator: { clipboard: { writeText: async () => { throw new Error('denied'); } } },
+    document: {},
+    desktop: { postMessage: async (msg) => { ipcPayload = msg; return true; } },
+  });
+  expect(await writeDesktop('# 桌面剪贴板')).toBe(true);
+  expect(ipcPayload).toEqual({ operation: 'clipboard-write', text: '# 桌面剪贴板' });
+
+  // 3. Non-secure file:// HTML falls back synchronously to execCommand('copy') and restores focus
+  let restoredFocus = false;
+  let copiedText = '';
+  let removed = false;
+  const prevActive = { focus: () => { restoredFocus = true; } };
+  const fakeDoc = {
+    activeElement: prevActive,
+    body: { append: (el) => { fakeDoc._appended = el; } },
+    contains: (el) => el === prevActive,
+    createElement: () => ({
+      value: '',
+      style: {},
+      setAttribute() {},
+      focus() {},
+      select() {},
+      setSelectionRange() {},
+      remove() { removed = true; },
+    }),
+    execCommand: (cmd) => {
+      if (cmd === 'copy') {
+        copiedText = fakeDoc._appended.value;
+        return true;
+      }
+      return false;
+    },
+  };
+  let asyncClipCalled = false;
+  const { writeClipboardText: writeFile } = loadHelper({
+    window: { isSecureContext: false },
+    navigator: { clipboard: { writeText: async () => { asyncClipCalled = true; } } },
+    document: fakeDoc,
+    desktop: null,
+  });
+  expect(await writeFile('离线 HTML 复制')).toBe(true);
+  expect(asyncClipCalled).toBe(false);
+  expect(copiedText).toBe('离线 HTML 复制');
+  expect(removed).toBe(true);
+  expect(restoredFocus).toBe(true);
+});
+
+test('CanvasExport includes matrix, timeline, and fishbone guides in full-board SVG export and omits them for single-card export', () => {
+  const exportSrc = fs.readFileSync(fileURLToPath(new URL('../src/scripts/09-export.js', import.meta.url)), 'utf8');
+  const exportStart = exportSrc.indexOf('const CanvasExport = (() => {');
+  const canvasExportSrc = exportSrc.slice(exportStart);
+
+  const nodes = [
+    { id: 'r', x: 0, y: 0, w: 220, h: 100, tone: 'topic', title: '核心主题', body: '', status: 'pending' },
+    { id: 'a', x: 320, y: 0, w: 180, h: 80, tone: 'idea', title: '子想法', body: '', status: 'reviewed' },
+    { id: 'b', x: 320, y: 120, w: 180, h: 80, tone: 'action', title: '行动项', body: '', status: 'pending' },
+  ];
+  const edges = [
+    { id: 'e1', from: 'r', to: 'a', kind: 'branch', label: '' },
+    { id: 'e2', from: 'r', to: 'b', kind: 'branch', label: '' },
+  ];
+  const statuses = [
+    { id: 'pending', name: '待验证', color: '#ad7429', icon: '○' },
+    { id: 'reviewed', name: '已复盘', color: '#3d7c61', icon: '✓' },
+  ];
+  const currentBoard = {
+    id: 'b1',
+    name: '导图',
+    nodes,
+    edges,
+    settings: {
+      ...CanvasData.newSettings(),
+      statuses,
+      frames: [],
+      guides: [],
+    },
+  };
+  let currentLayout = { options: currentBoard.settings.layout, guides: [] };
+
+  const fakeCtx = {
+    font: '',
+    fillStyle: '',
+    measureText: (t) => ({ width: [...String(t)].length * 10 }),
+  };
+  const fakeDoc = {
+    documentElement: {},
+    createElement: () => ({ getContext: () => fakeCtx }),
+  };
+  const fakeViewport = {
+    classList: { contains: () => false, remove() {}, toggle() {} },
+  };
+  const makeCardView = (n) => ({
+    element: {
+      hidden: false,
+      dataset: { profile: 'title', tone: n.tone },
+      offsetWidth: n.w,
+      offsetHeight: n.h,
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: n.w, height: n.h }),
+      querySelector: () => null,
+    },
+    type: { hidden: true },
+    title: { hidden: false, textContent: n.title, offsetLeft: 12, offsetTop: 12, offsetWidth: 160, offsetHeight: 24, offsetParent: null },
+    body: { hidden: true, childNodes: [], querySelector: () => null, querySelectorAll: () => [] },
+    meta: { hidden: true, children: [] },
+    cover: { hidden: true, querySelector: () => null },
+  });
+  const cardIndex = new Map(nodes.map((n) => [n.id, makeCardView(n)]));
+  for (const v of cardIndex.values()) v.title.offsetParent = v.element;
+
+  const { CanvasExport } = new Function(
+    'document', 'getComputedStyle', 'viewport', 'board', 'displayedLayout', 'visibility', 'cardRect',
+    'boundsOf', 'CanvasViews', 'CanvasLayout', 'matrixTrackAt', 'hierarchy', 'edgeStyle', 'linkCurve',
+    'lineDashes', 'cardIndex', 'titleOf',
+    `${canvasExportSrc}\nreturn { CanvasExport };`,
+  )(
+    fakeDoc,
+    () => ({
+      fontFamily: 'sans-serif', fontStyle: 'normal', fontWeight: '600', fontSize: '14px', lineHeight: '20px',
+      color: '#0f172a', backgroundColor: '#ffffff', backgroundImage: 'none', borderTopColor: '#e2e8f0',
+      borderTopLeftRadius: '12px', borderTopWidth: '1px', paddingBottom: '12px', paddingLeft: '7px',
+      getPropertyValue: (k) => ({ '--ink': '#0f172a', '--ink-soft': '#475569', '--paper': '#ffffff', '--line': '#e2e8f0', '--board-accent': '#0f766e', '--guide-ink': '#0f766e' }[k] || ''),
+    }),
+    fakeViewport,
+    () => currentBoard,
+    () => currentLayout,
+    { hidden: new Set(), dimmed: new Set() },
+    (n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }),
+    (rects) => ({ left: Math.min(...rects.map((r) => r.x)), top: Math.min(...rects.map((r) => r.y)), right: Math.max(...rects.map((r) => r.x + r.w)), bottom: Math.max(...rects.map((r) => r.y + r.h)), w: 100, h: 100 }),
+    { frameRect: () => null },
+    CanvasLayout,
+    (tracks, value) => tracks.find((t) => value >= t.start && value < t.end),
+    CanvasLayout.tree(nodes, edges),
+    () => ({ color: '#64748b', width: 1.5, shape: 'curve', dash: 'solid', arrow: 'none' }),
+    (a, b) => ({ path: `M ${a.x} ${a.y} L ${b.x} ${b.y}`, label: { x: 0, y: 0 }, start: null, end: null }),
+    { dashed: '7 5', dotted: '1 5' },
+    cardIndex,
+    (n) => n.title,
+  );
+
+  for (const mode of ['matrix', 'timeline', 'fishbone']) {
+    const opts = { ...currentBoard.settings.layout, mode, rows: 'status', columns: 'tone', statuses };
+    const computed = CanvasLayout.compute(nodes, edges, opts);
+    expect(computed.guides.length).toBeGreaterThan(0);
+    for (const n of nodes) Object.assign(n, computed.positions.get(n.id));
+    currentLayout = { options: opts, guides: computed.guides };
+
+    const fullScene = CanvasExport.scene(null);
+    const fullSvg = CanvasExport.toSVG(fullScene);
+    const guideLines = fullScene.shapes.filter((s) => s.type === 'path' && s.opacity === 0.42);
+    expect(guideLines.length).toBe(computed.guides.filter((g) => g.kind === 'line').length);
+    if (mode === 'matrix') {
+      expect(fullSvg).toContain('待验证');
+      expect(fullSvg).toContain('已复盘');
+      expect(fullSvg).toContain('主题');
+      expect(fullSvg).toContain('paint-order="stroke"');
+      expect(fullScene.shapes.some((s) => s.type === 'rect' && s.fillOpacity === 0.045)).toBe(true);
+      expect(fullScene.shapes.some((s) => s.type === 'path' && s.opacity === 0.28)).toBe(true);
+    } else if (mode === 'timeline') {
+      expect(fullSvg).toContain('>1</tspan>');
+      expect(fullSvg).toContain('>2</tspan>');
+    }
+    const singleScene = CanvasExport.scene(['a']);
+    expect(singleScene.shapes.some((s) => s.type === 'path' && s.opacity === 0.42)).toBe(false);
+  }
+});

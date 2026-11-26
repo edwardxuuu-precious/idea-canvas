@@ -583,6 +583,7 @@ function syncInline() {
 function finishInline(options = {}) {
   const active = inlineEdit;
   if (!active) return;
+  active.clearSuppress?.();
   syncInline();
   inlineEdit = null;
   active.element.classList.remove('is-editing');
@@ -610,6 +611,7 @@ function finishInline(options = {}) {
 function cancelInline() {
   const active = inlineEdit;
   if (!active) return;
+  active.clearSuppress?.();
   if (active.isNew) {
     inlineEdit = null;
     cardSizes.unobserve(active.element);
@@ -734,6 +736,7 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
       const targetNode = inlineEdit.node;
       const wasNew = inlineEdit.isNew;
       const targetParent = inlineEdit.parent;
+      targetNode.tone = inlineEdit.tone;
       finishInline({ keepFocus: true });
       openNote(targetNode, wasNew, targetParent);
     }, icon('expand'))
@@ -747,6 +750,7 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
   inlineEdit = {
     node, isNew, parent, tone: node.tone, element: view.element,
     toolbar, titleInput, bodyEditor, hint, checkpointed: false, bodyChanged: false,
+    clearSuppress: null,
   };
   renderSelection();
 
@@ -760,6 +764,7 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
       clearTimeout(timer);
       window.removeEventListener('keyup', clearSuppress, true);
     };
+    inlineEdit.clearSuppress = clearSuppress;
     window.addEventListener('keyup', clearSuppress, true);
     timer = setTimeout(clearSuppress, 300);
     titleInput.addEventListener('beforeinput', e => {
@@ -845,6 +850,7 @@ function openInline(node, { isNew = false, parent = null, focusBody = false, tri
       const targetNode = node;
       const wasNew = inlineEdit.isNew;
       const targetParent = inlineEdit.parent;
+      targetNode.tone = inlineEdit.tone;
       finishInline({ keepFocus: true });
       openNote(targetNode, wasNew, targetParent);
       void addPictures(files);

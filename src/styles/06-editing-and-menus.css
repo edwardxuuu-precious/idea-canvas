@@ -49,7 +49,7 @@
 }
 .card.is-editing:is([data-profile="title"],[data-profile="empty"]) { border-radius: 14px; height: auto !important; }
 .card.is-editing:is([data-profile="title"],[data-profile="empty"]) .card-type span { display: inline; }
-.card.is-editing :is(.card-port, .card-size, .card-fold, .card-title, .card-body) { display: none !important; }
+.card.is-editing :is(.card-port, .card-size, .card-fold, .card-title, .card-cover, .card-body) { display: none !important; }
 .inline-toolbar {
   position: absolute; left: 0; bottom: calc(100% + 8px);
   display: flex; align-items: center; gap: 3px; padding: 4px 6px;
@@ -85,6 +85,7 @@
 }
 .card-cover:not([hidden]) ~ .inline-body { margin-top: 8px; }
 .inline-body[data-empty="true"]::before { content: attr(data-placeholder); color: var(--card-sub); opacity: .55; pointer-events: none; }
+.inline-body img { display: block; max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 8px; margin: 4px 0; }
 .inline-body ul, .note-body ul { list-style: disc; }
 .inline-body ul:has(> li[data-done]), .note-body ul:has(> li[data-done]) { list-style: none; padding-inline-start: 0.2em; }
 .inline-body li[data-done], .note-body li[data-done] { position: relative; padding-inline-start: 22px; list-style: none; margin: 3px 0; }

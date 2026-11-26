@@ -157,8 +157,9 @@ function copySelectionToClipboard(cut = false) {
   if (!ids.length) return;
   const payload = buildInternalClipboard(ids);
   if (!payload) return;
+  const md = selectionToMarkdownFromPayload(payload);
+  payload.clipboardText = md;
   internalClipboard = payload;
-  const md = selectionToMarkdown(ids);
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(md).catch(() => {});
   }
@@ -174,6 +175,7 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const current = board();
   const statusMap = new Map(current.settings.statuses.map(s => [s.id, s]));
   const tagMap = new Map(current.settings.tags.map(t => [t.id, t]));
+  const linkedSubBoards = new Set(workspace.boards.flatMap(b => b.nodes.map(n => n.subBoardId).filter(Boolean)));
   const box = boundsOf(payload.nodes);
   const centerX = box ? (box.left + box.right) / 2 : 0;
   const centerY = box ? (box.top + box.bottom) / 2 : 0;
@@ -188,7 +190,7 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const inserted = payload.nodes.map(n => {
     const copy = structuredClone(n);
     copy.id = idMap.get(n.id);
-    if (copy.subBoardId === current.id) delete copy.subBoardId;
+    if (copy.subBoardId === current.id || linkedSubBoards.has(copy.subBoardId)) delete copy.subBoardId;
     copy.x = coordinate(anchorWorld.x + (n.x - centerX));
     copy.y = coordinate(anchorWorld.y + (n.y - centerY));
     return copy;
@@ -229,8 +231,8 @@ async function handleCanvasPaste(clipboardData) {
     return;
   }
   const text = clipboardData?.getData('text/plain') || '';
-  const mdCheck = internalClipboard ? selectionToMarkdownFromPayload(internalClipboard) : null;
-  if (internalClipboard && (!text || text.trim() === mdCheck)) {
+  const mdCheck = internalClipboard ? (internalClipboard.clipboardText || selectionToMarkdownFromPayload(internalClipboard)) : null;
+  if (internalClipboard && (!text || text.trim() === mdCheck.trim())) {
     pasteNodesIntoBoard(internalClipboard, targetWorld);
     return;
   }
@@ -399,17 +401,30 @@ async function importFile(file) {
     const incoming = CanvasData.parse(await file.text());
     mergeThemes(incoming.themes);
     const names = new Set(workspace.boards.map(item => item.name));
-    const active = incoming.boards.find(item => item.id === incoming.activeId);
+    const idMap = new Map(incoming.boards.map(item => [item.id, CanvasData.uid()]));
     for (const item of incoming.boards) {
       const base = item.name || '未命名画布';
       let unique = base;
       for (let index = 2; names.has(unique); index++) unique = base + ' (' + index + ')';
       names.add(unique);
       item.name = unique;
-      item.id = CanvasData.uid();
+      item.id = idMap.get(item.id);
+      if (item.settings) {
+        item.settings.parentId = item.settings.parentId && idMap.has(item.settings.parentId)
+          ? idMap.get(item.settings.parentId) : null;
+      }
+      for (const node of item.nodes) {
+        if (node.subBoardId) {
+          if (idMap.has(node.subBoardId) && idMap.get(node.subBoardId) !== item.id) {
+            node.subBoardId = idMap.get(node.subBoardId);
+          } else {
+            delete node.subBoardId;
+          }
+        }
+      }
       workspace.boards.push(item);
     }
-    switchBoard(active.id);
+    switchBoard(idMap.get(incoming.activeId) || incoming.boards[0].id);
     toast('已导入 ' + incoming.boards.length + ' 张画布');
   } catch (error) {
     toast('导入失败。' + error.message, 'error');

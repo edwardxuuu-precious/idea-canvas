@@ -1021,7 +1021,7 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
 }
 .card.is-editing:is([data-profile="title"],[data-profile="empty"]) { border-radius: 14px; height: auto !important; }
 .card.is-editing:is([data-profile="title"],[data-profile="empty"]) .card-type span { display: inline; }
-.card.is-editing :is(.card-port, .card-size, .card-fold, .card-title, .card-body) { display: none !important; }
+.card.is-editing :is(.card-port, .card-size, .card-fold, .card-title, .card-cover, .card-body) { display: none !important; }
 .inline-toolbar {
   position: absolute; left: 0; bottom: calc(100% + 8px);
   display: flex; align-items: center; gap: 3px; padding: 4px 6px;
@@ -1057,6 +1057,7 @@ button.card-chip:hover, .card-chip.is-sources[aria-expanded="true"], .card-fold:
 }
 .card-cover:not([hidden]) ~ .inline-body { margin-top: 8px; }
 .inline-body[data-empty="true"]::before { content: attr(data-placeholder); color: var(--card-sub); opacity: .55; pointer-events: none; }
+.inline-body img { display: block; max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 8px; margin: 4px 0; }
 .inline-body ul, .note-body ul { list-style: disc; }
 .inline-body ul:has(> li[data-done]), .note-body ul:has(> li[data-done]) { list-style: none; padding-inline-start: 0.2em; }
 .inline-body li[data-done], .note-body li[data-done] { position: relative; padding-inline-start: 22px; list-style: none; margin: 3px 0; }
@@ -2717,12 +2718,29 @@ async function saveConflictCopy() {
     if (JSON.stringify(last.themes) !== JSON.stringify(pending.themes)) mergeThemes(pending.themes);
     unresolved = false;
     const names = new Set(workspace.boards.map(item => item.name));
+    const localIdMap = new Map(local.map(item => [item.id, CanvasData.uid()]));
     for (const item of local) {
       const base = item.name + '（同步草稿）';
       let name = base;
       for (let number = 2; names.has(name); number++) name = base + ' ' + number;
       names.add(name);
-      const copy = { ...item, id: CanvasData.uid(), name, view: null };
+      const copy = structuredClone(item);
+      copy.id = localIdMap.get(item.id);
+      copy.name = name;
+      copy.view = null;
+      if (copy.settings) {
+        copy.settings.parentId = copy.settings.parentId && localIdMap.has(copy.settings.parentId)
+          ? localIdMap.get(copy.settings.parentId) : null;
+      }
+      for (const node of copy.nodes || []) {
+        if (node.subBoardId) {
+          if (localIdMap.has(node.subBoardId) && localIdMap.get(node.subBoardId) !== copy.id) {
+            node.subBoardId = localIdMap.get(node.subBoardId);
+          } else {
+            delete node.subBoardId;
+          }
+        }
+      }
       workspace.boards.push(copy);
       workspace.activeId = copy.id;
     }
@@ -5521,7 +5539,8 @@ const CanvasViews = (() => {
     const tree = graph();
     const oldParent = tree.parent.get(source);
     if (oldParent && oldParent !== newParent) {
-      current.edges = current.edges.filter(edge => !(edge.from === oldParent && edge.to === source && edge.kind === 'branch'));
+      current.edges = current.edges.filter(edge =>
+        !(edge.from === oldParent && edge.to === source && (edge.kind === 'branch' || !newParent)));
     }
     if (newParent && oldParent !== newParent) {
       const existing = current.edges.find(edge =>
@@ -5682,13 +5701,14 @@ const CanvasViews = (() => {
     return { x: left, y: top, w: right - left, h: bottom - top };
   }
 
-  function frameRect(frame, positions = null) {
-    const members = frame.members.map(id => {
+  function frameRect(frame, positions = null, hidden = null) {
+    const members = frame.members.filter(id => !hidden?.has(id)).map(id => {
       const node = nodeBy(id);
       if (!node) return null;
       const pos = positions?.get(id);
       return pos ? { ...node, ...pos } : node;
     }).filter(Boolean);
+    if (hidden && frame.members.length > 0 && !frame.box && !members.length) return null;
     const memberBox = paddedBounds(members);
     return unionBox(frame.box || null, memberBox);
   }
@@ -7039,7 +7059,7 @@ function paintMap() {
   const positions = activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions;
   const shown = effectiveNodes(positions).filter(node => !visibility.hidden.has(node.id));
   const frameBoxes = current.settings.frames
-    .map(frame => ({ frame, box: CanvasViews.frameRect(frame, positions) }))
+    .map(frame => ({ frame, box: CanvasViews.frameRect(frame, positions, visibility.hidden) }))
     .filter(item => item.box);
   const bounds = boundsOf([
     ...shown,
@@ -7959,18 +7979,21 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
     }
   });
 
-  if (focusBody) bodyEditor.focus();
-  else {
-    titleInput.focus();
-    if (!isNew) titleInput.select();
-  }
+  requestAnimationFrame(() => {
+    if (inlineEdit?.node.id !== node.id) return;
+    if (focusBody) bodyEditor.focus();
+    else {
+      titleInput.focus();
+      if (!isNew) titleInput.select();
+    }
+  });
 }
 
 function addBranch(sibling = false) {
   const node = chosenCard();
   if (!node) return;
-  const incoming = sibling ? board().edges.find(edge => edge.to === node.id && edge.kind === 'branch') : null;
-  const parent = sibling ? (incoming ? nodeBy(incoming.from) : null) : node;
+  const parentId = sibling ? hierarchy?.parent.get(node.id) : node.id;
+  const parent = parentId ? nodeBy(parentId) : null;
   openInline(blankCard(null, parent, sibling ? node : null), { isNew: true, parent });
 }
 
@@ -7988,12 +8011,16 @@ function duplicateSelected() {
   const box = boundsOf(originals);
   const place = freePosition(box.right + 44, box.top, box.w, box.h);
   const ids = new Map(originals.map(node => [node.id, CanvasData.uid()]));
-  const copied = originals.map(node => ({
-    ...node, id: ids.get(node.id), x: coordinate(node.x + place.x - box.left), y: coordinate(node.y + place.y - box.top),
-  }));
+  const copied = originals.map(node => {
+    const clone = structuredClone(node);
+    delete clone.subBoardId;
+    return {
+      ...clone, id: ids.get(node.id), x: coordinate(node.x + place.x - box.left), y: coordinate(node.y + place.y - box.top),
+    };
+  });
   const links = board().edges
     .filter(edge => ids.has(edge.from) && ids.has(edge.to))
-    .map(edge => ({ ...edge, id: CanvasData.uid(), from: ids.get(edge.from), to: ids.get(edge.to) }));
+    .map(edge => ({ ...structuredClone(edge), id: CanvasData.uid(), from: ids.get(edge.from), to: ids.get(edge.to) }));
   checkpoint();
   board().nodes.push(...copied);
   board().edges.push(...links);
@@ -8568,6 +8595,32 @@ const CanvasExport = (() => {
     return { type: 'text', x: x + box.x, y: y + box.y, lines, font, lineHeight: font.lineHeight };
   }
 
+  function exportBodyText(root) {
+    const blocks = new Set(['DIV', 'P', 'H2', 'H3', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE']);
+    let out = '';
+    function walk(el) {
+      for (const child of el.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          out += child.textContent;
+          continue;
+        }
+        if (child.nodeType !== Node.ELEMENT_NODE) continue;
+        if (child.tagName === 'BR') {
+          out += '\n';
+          continue;
+        }
+        if (blocks.has(child.tagName) && out && !out.endsWith('\n')) out += '\n';
+        if (child.classList?.contains('checklist-item')) {
+          out += child.dataset.done === 'true' ? '☑ ' : '☐ ';
+        }
+        walk(child);
+        if (blocks.has(child.tagName) && out && !out.endsWith('\n')) out += '\n';
+      }
+    }
+    walk(root);
+    return out.replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   function cardShapes(node, view, shapes) {
     const card = view.element;
     if (card.hidden || !card.offsetWidth) return;
@@ -8588,11 +8641,16 @@ const CanvasExport = (() => {
     });
     const typeBox = !view.type.hidden && boxIn(view.type, card);
     if (typeBox) {
-      const pill = color(getComputedStyle(view.type).backgroundColor);
+      const typeStyle = getComputedStyle(view.type);
+      const pill = color(typeStyle.backgroundColor);
       if (!isTransparent(pill)) shapes.push({ type: 'rect', x: x + typeBox.x, y: y + typeBox.y, w: typeBox.w, h: typeBox.h, r: typeBox.h / 2, fill: pill });
       const label = view.type.querySelector('span');
       const labelBox = label && boxIn(label, card);
-      if (labelBox) shapes.push({ ...textShape(x, y, labelBox, label, label.textContent, 1), lineHeight: labelBox.h });
+      if (labelBox) {
+        const dotX = x + typeBox.x + Math.max(4, (labelBox.x - typeBox.x - 5.5) / 2);
+        shapes.push({ type: 'rect', x: dotX, y: y + typeBox.y + typeBox.h / 2 - 2.75, w: 5.5, h: 5.5, r: 2.75, fill: color(typeStyle.color, '#0f766e') });
+        shapes.push({ ...textShape(x, y, labelBox, label, label.textContent, 1), lineHeight: labelBox.h });
+      }
     }
     const titleBox = !view.title.hidden && boxIn(view.title, card);
     if (titleBox) {
@@ -8603,7 +8661,7 @@ const CanvasExport = (() => {
     const imageBox = image && boxIn(image, card);
     if (imageBox?.w && imageBox.h) shapes.push({ type: 'image', x: x + imageBox.x, y: y + imageBox.y, w: imageBox.w, h: imageBox.h, r: 8, src: image.src });
     const bodyBox = !view.body.hidden && boxIn(view.body, card);
-    const bodyText = bodyBox ? view.body.innerText.replace(/\n{3,}/g, '\n\n').trim() : '';
+    const bodyText = bodyBox ? exportBodyText(view.body) : '';
     if (bodyText) {
       const font = fontOf(view.body);
       const bottomPad = parseFloat(getComputedStyle(card.querySelector('.card-copy')).paddingBottom) || 12;
@@ -8684,7 +8742,15 @@ const CanvasExport = (() => {
       boxes.push(box);
     }
     shapes.push(...labels);
-    for (const node of nodes) cardShapes(node, cardIndex.get(node.id), shapes);
+    const hadOverview = viewport.classList.contains('is-overview');
+    const hadZoomedOut = viewport.classList.contains('is-zoomed-out');
+    viewport.classList.remove('is-overview', 'is-zoomed-out');
+    try {
+      for (const node of nodes) cardShapes(node, cardIndex.get(node.id), shapes);
+    } finally {
+      viewport.classList.toggle('is-overview', hadOverview);
+      viewport.classList.toggle('is-zoomed-out', hadZoomedOut);
+    }
 
     const left = Math.min(...boxes.map(box => box.x)) - padding;
     const top = Math.min(...boxes.map(box => box.y)) - padding;
@@ -9004,8 +9070,9 @@ function copySelectionToClipboard(cut = false) {
   if (!ids.length) return;
   const payload = buildInternalClipboard(ids);
   if (!payload) return;
+  const md = selectionToMarkdownFromPayload(payload);
+  payload.clipboardText = md;
   internalClipboard = payload;
-  const md = selectionToMarkdown(ids);
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(md).catch(() => {});
   }
@@ -9021,6 +9088,7 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const current = board();
   const statusMap = new Map(current.settings.statuses.map(s => [s.id, s]));
   const tagMap = new Map(current.settings.tags.map(t => [t.id, t]));
+  const linkedSubBoards = new Set(workspace.boards.flatMap(b => b.nodes.map(n => n.subBoardId).filter(Boolean)));
   const box = boundsOf(payload.nodes);
   const centerX = box ? (box.left + box.right) / 2 : 0;
   const centerY = box ? (box.top + box.bottom) / 2 : 0;
@@ -9035,7 +9103,7 @@ function pasteNodesIntoBoard(payload, anchorWorld) {
   const inserted = payload.nodes.map(n => {
     const copy = structuredClone(n);
     copy.id = idMap.get(n.id);
-    if (copy.subBoardId === current.id) delete copy.subBoardId;
+    if (copy.subBoardId === current.id || linkedSubBoards.has(copy.subBoardId)) delete copy.subBoardId;
     copy.x = coordinate(anchorWorld.x + (n.x - centerX));
     copy.y = coordinate(anchorWorld.y + (n.y - centerY));
     return copy;
@@ -9076,8 +9144,8 @@ async function handleCanvasPaste(clipboardData) {
     return;
   }
   const text = clipboardData?.getData('text/plain') || '';
-  const mdCheck = internalClipboard ? selectionToMarkdownFromPayload(internalClipboard) : null;
-  if (internalClipboard && (!text || text.trim() === mdCheck)) {
+  const mdCheck = internalClipboard ? (internalClipboard.clipboardText || selectionToMarkdownFromPayload(internalClipboard)) : null;
+  if (internalClipboard && (!text || text.trim() === mdCheck.trim())) {
     pasteNodesIntoBoard(internalClipboard, targetWorld);
     return;
   }
@@ -9246,17 +9314,30 @@ async function importFile(file) {
     const incoming = CanvasData.parse(await file.text());
     mergeThemes(incoming.themes);
     const names = new Set(workspace.boards.map(item => item.name));
-    const active = incoming.boards.find(item => item.id === incoming.activeId);
+    const idMap = new Map(incoming.boards.map(item => [item.id, CanvasData.uid()]));
     for (const item of incoming.boards) {
       const base = item.name || '未命名画布';
       let unique = base;
       for (let index = 2; names.has(unique); index++) unique = base + ' (' + index + ')';
       names.add(unique);
       item.name = unique;
-      item.id = CanvasData.uid();
+      item.id = idMap.get(item.id);
+      if (item.settings) {
+        item.settings.parentId = item.settings.parentId && idMap.has(item.settings.parentId)
+          ? idMap.get(item.settings.parentId) : null;
+      }
+      for (const node of item.nodes) {
+        if (node.subBoardId) {
+          if (idMap.has(node.subBoardId) && idMap.get(node.subBoardId) !== item.id) {
+            node.subBoardId = idMap.get(node.subBoardId);
+          } else {
+            delete node.subBoardId;
+          }
+        }
+      }
       workspace.boards.push(item);
     }
-    switchBoard(active.id);
+    switchBoard(idMap.get(incoming.activeId) || incoming.boards[0].id);
     toast('已导入 ' + incoming.boards.length + ' 张画布');
   } catch (error) {
     toast('导入失败。' + error.message, 'error');
@@ -10024,7 +10105,7 @@ function openContextMenu(event) {
     addContextItem('自动整理画布', autoArrange);
     addContextItem('查看全图', () => { fitView(); focusCanvas(); }, { shortcut: 'F' });
     if (board().settings.folded.length) {
-      addContextItem('展开全部折叠分支', () => CanvasViews.open('view'));
+      addContextItem('展开全部折叠分支', () => CanvasViews.expandAll());
     }
   }
 
@@ -10318,9 +10399,9 @@ document.addEventListener('keydown', event => {
   if (key === 'tab' && !event.shiftKey && event.target === viewport && chosenCard()) {
     event.preventDefault();
     addBranch();
-  } else if (key === 'enter' && chosenCard()) {
+  } else if (key === 'enter' && (chosenCard() || chosenEdge())) {
     event.preventDefault();
-    if (event.target === viewport) addBranch(true);
+    if (chosenCard() && event.target === viewport) addBranch(true);
     else editSelection();
   } else if (key === 'escape') {
     cancelGesture();
@@ -10353,8 +10434,15 @@ window.addEventListener('blur', () => {
   releaseSpace();
 });
 window.addEventListener('resize', paintView);
-window.addEventListener('pagehide', save);
-document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+window.addEventListener('pagehide', () => {
+  if (inlineEdit) syncInline();
+  save();
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) return;
+  if (inlineEdit) syncInline();
+  save();
+});
 function checkOtherWindows() {
   if (syncing || loadFailure || conflict) return;
   try {
@@ -10558,6 +10646,7 @@ if (desktop) {
     return 'done';
   };
   window.ideaCanvasBeforeQuit = async () => {
+    if (inlineEdit) syncInline();
     if (modalNote?.imageJob) await modalNote.imageJob;
     if (modalNote) syncNote();
     clearTimeout(saveTimer);
@@ -10590,6 +10679,7 @@ if (syncing && !loadFailure) {
   window.addEventListener('focus', pullShared);
   if (browserSync) {
     window.addEventListener('beforeunload', event => {
+      if (inlineEdit) syncInline();
       rememberDraft();
       if (dirty()) {
         event.preventDefault();

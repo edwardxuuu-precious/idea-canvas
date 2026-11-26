@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
-import { request as httpRequest } from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,6 +107,60 @@ test('offline CRUD, subtree guard, pre-deletion backup, and mirror sync work end
     expect(backups.some((f) => f.startsWith('每日-'))).toBe(true);
     expect(backups.some((f) => f.startsWith('删除前-'))).toBe(true);
 
+    // Priority 'star', same-batch sibling ordering, richBody image preservation, and delete cleanup
+    await runTool(
+      'canvas_upsert_cards',
+      {
+        boardId: 'test-board',
+        cards: [
+          { id: 'a', parentId: 'home', title: 'A', priority: 'star' },
+          { id: 'b', parentId: 'home', title: 'B', beforeSiblingId: 'a' },
+          { id: 'c', parentId: 'home', title: 'C', afterSiblingId: 'b' },
+        ],
+      },
+      cfg,
+    );
+    const batchOutline = await runTool('canvas_get_outline', { boardId: 'test-board', maxDepth: 2 }, cfg);
+    expect(batchOutline.outline[0].children.map((x) => x.id)).toEqual(['b', 'c', 'a']);
+    const starRes = await runTool('canvas_get_cards', { boardId: 'test-board', cardIds: ['a'] }, cfg);
+    expect(starRes.cards[0].priority).toBe('star');
+
+    // Preserve embedded <img> in richBody when updating body, and preserve custom richBody when body unchanged
+    const rawWs = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, '画布数据.json'), 'utf8'));
+    const nodeA = rawWs.boards[0].nodes.find((n) => n.id === 'a');
+    nodeA.body = '原正文';
+    nodeA.richBody = '<img src="data:image/png;base64,AAAA" alt="图"><p><strong>原正文</strong></p>';
+    rawWs.boards[0].settings.folded = ['a'];
+    rawWs.boards[0].settings.frames = [{ id: 'f1', name: 'F1', color: '#6d9780', members: ['a', 'b'] }];
+    fs.writeFileSync(path.join(cfg.dataDir, '画布数据.json'), JSON.stringify(rawWs));
+
+    await runTool('canvas_upsert_cards', { boardId: 'test-board', cards: [{ id: 'a', title: 'A改名', body: '原正文' }] }, cfg);
+    let wsAfterSameBody = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, '画布数据.json'), 'utf8'));
+    expect(wsAfterSameBody.boards[0].nodes.find((n) => n.id === 'a').richBody).toContain('<strong>原正文</strong>');
+
+    await runTool('canvas_upsert_cards', { boardId: 'test-board', cards: [{ id: 'a', body: '新正文' }] }, cfg);
+    let wsAfterNewBody = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, '画布数据.json'), 'utf8'));
+    expect(wsAfterNewBody.boards[0].nodes.find((n) => n.id === 'a').richBody).toContain('<img src="data:image/png;base64,AAAA"');
+
+    // Enforce DiskWorkspace byte limits offline
+    await expect(
+      runTool('canvas_upsert_cards', { boardId: 'test-board', cards: [{ id: 'a', note: 'x'.repeat(16001) }] }, cfg),
+    ).rejects.toThrow(/16KB/);
+    await expect(
+      runTool(
+        'canvas_upsert_cards',
+        { boardId: 'test-board', cards: [{ id: 'a', sources: Array.from({ length: 65 }, (_, i) => ({ label: `s${i}` })) }] },
+        cfg,
+      ),
+    ).rejects.toThrow(/64/);
+
+    // Deleting a cleans up settings.folded and frames[].members
+    await runTool('canvas_delete_cards', { boardId: 'test-board', cardIds: ['a'] }, cfg);
+    const wsAfterDeleteA = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, '画布数据.json'), 'utf8'));
+    expect(wsAfterDeleteA.boards[0].settings.folded).toEqual([]);
+    expect(wsAfterDeleteA.boards[0].settings.frames[0].members).toEqual(['b']);
+    await runTool('canvas_delete_cards', { boardId: 'test-board', cardIds: ['b', 'c'] }, cfg);
+
     // Mirror sync check / pull / push
     const mirrorPath = path.join(cfg.dataDir, 'mirror.json');
     const disk = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, '画布数据.json'), 'utf8'));
@@ -174,15 +228,32 @@ test('live local API rejects unauthenticated and Origin-bearing Bearer requests,
 
   const probe = (headers) =>
     new Promise((resolve, reject) => {
-      const req = httpRequest(
-        { hostname: '127.0.0.1', port: 47471, method: 'GET', path: '/api/agent/health', headers, agent: false },
-        (res) => {
-          res.resume();
-          resolve(res.statusCode);
-        },
-      );
-      req.on('error', reject);
-      req.end();
+      const sock = net.createConnection({ host: '127.0.0.1', port: 47471 });
+      let raw = '';
+      sock.setTimeout(3000);
+      sock.on('timeout', () => {
+        sock.destroy(Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' }));
+      });
+      sock.on('error', reject);
+      sock.on('connect', () => {
+        const lines = ['GET /api/agent/health HTTP/1.1'];
+        for (const [k, v] of Object.entries(headers)) lines.push(`${k}: ${v}`);
+        lines.push('Connection: close', '', '');
+        sock.write(lines.join('\r\n'));
+      });
+      sock.on('data', (chunk) => {
+        raw += chunk.toString('utf8');
+        const m = raw.match(/^HTTP\/1\.[01]\s+(\d{3})/);
+        if (m) {
+          sock.destroy();
+          resolve(Number(m[1]));
+        }
+      });
+      sock.on('end', () => {
+        const m = raw.match(/^HTTP\/1\.[01]\s+(\d{3})/);
+        if (m) resolve(Number(m[1]));
+        else reject(new Error(`Unexpected HTTP response: ${raw}`));
+      });
     });
 
   let reachable = true;

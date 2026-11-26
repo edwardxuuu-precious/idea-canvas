@@ -513,7 +513,8 @@ const CanvasViews = (() => {
     const tree = graph();
     const oldParent = tree.parent.get(source);
     if (oldParent && oldParent !== newParent) {
-      current.edges = current.edges.filter(edge => !(edge.from === oldParent && edge.to === source && edge.kind === 'branch'));
+      current.edges = current.edges.filter(edge =>
+        !(edge.from === oldParent && edge.to === source && (edge.kind === 'branch' || !newParent)));
     }
     if (newParent && oldParent !== newParent) {
       const existing = current.edges.find(edge =>
@@ -674,13 +675,14 @@ const CanvasViews = (() => {
     return { x: left, y: top, w: right - left, h: bottom - top };
   }
 
-  function frameRect(frame, positions = null) {
-    const members = frame.members.map(id => {
+  function frameRect(frame, positions = null, hidden = null) {
+    const members = frame.members.filter(id => !hidden?.has(id)).map(id => {
       const node = nodeBy(id);
       if (!node) return null;
       const pos = positions?.get(id);
       return pos ? { ...node, ...pos } : node;
     }).filter(Boolean);
+    if (hidden && frame.members.length > 0 && !frame.box && !members.length) return null;
     const memberBox = paddedBounds(members);
     return unionBox(frame.box || null, memberBox);
   }

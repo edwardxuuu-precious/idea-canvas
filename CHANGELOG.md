@@ -6,6 +6,42 @@
 
 ---
 
+## [2.1.1] (Build 14) - 2026-11-26
+
+集中修复前端画布、剪贴板、大纲树、导出渲染与 MCP 服务的 13 处边界缺陷，并补充核心逻辑回归测试。
+
+### 修复清单（更新了什么 / 为什么 / 做了什么）
+
+1. **MCP 保真富文本与插图（[mcp/idea-canvas-mcp.mjs](mcp/idea-canvas-mcp.mjs)）**
+   - **为什么**：此前 AI 通过 `canvas_upsert_cards` 更新正文时会直接清空不含内联链接的 `richBody`，导致用户粘贴的截图和格式丢失。
+   - **做了什么**：正文文本未变化时原样保留 `richBody`；正文变更且原有 `<img>` 时提取保留所有图片再拼接新段落 HTML。
+2. **MCP 离线写入对齐桌面端字节上限（[mcp/idea-canvas-mcp.mjs](mcp/idea-canvas-mcp.mjs)）**
+   - **为什么**：桌面端关闭期间离线写入超长 `note` 或过量 `sources` 会导致下次启动被 `DiskWorkspace.swift` 拒载整库。
+   - **做了什么**：在 `validateWorkspace` 强制校验 `note <= 16KB`、`sources <= 64`、标题与 URL UTF-8 字节上限。
+3. **MCP 删卡清理、同批排序、星标与镜像口径统一（[mcp/idea-canvas-mcp.mjs](mcp/idea-canvas-mcp.mjs)）**
+   - `canvas_delete_cards` 同步清理 `settings.folded`、`frames[].members` 及失效 `layout.rootId`。
+   - `canvas_upsert_cards` 放弃 `Number.MAX_SAFE_INTEGER` 占位（修复 `-0.5` 浮点精度失效），改为按每张卡增量重算顺序。
+   - `VALID_PRIORITIES` 与 Schema 补全 `star`；新建画布默认配置对齐 v2.1 配色；`canvas_get_outline` 采用 `buildOutlineTree`（两阶段 `branch`/`link` 无环树）与前端大纲保持一致。
+4. **单卡带子节点复制粘贴保真与「复制卡片」深拷贝（[src/scripts/10-clipboard.js](src/scripts/10-clipboard.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)）**
+   - **为什么**：单选父卡按 `⌘C` 时内部仅复制单卡而剪贴板写入整棵子树 Markdown，粘贴因文本比对不匹配退回纯文本解析；「复制卡片」浅拷贝共享对象数组与 `subBoardId`。
+   - **做了什么**：粘贴比对直接核对内部载荷生成的 `clipboardText`，粘贴跨画布重复 `subBoardId` 时清理重复入口；`duplicateSelected` 改用 `structuredClone` 并清除 `subBoardId`。
+5. **导入 JSON 与冲突副本重建父子画布引用（[src/scripts/10-clipboard.js](src/scripts/10-clipboard.js)、[src/scripts/03-workspace-sync.js](src/scripts/03-workspace-sync.js)）**
+   - `importFile` 与 `saveConflictCopy` 统一先生成旧→新画布 ID 映射表，再同步更新 `settings.parentId` 与卡片 `subBoardId`。
+6. **退出应用 / 切走标签前刷新原位编辑（[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)）**
+   - 在 `ideaCanvasBeforeQuit`、`pagehide`、`visibilitychange`、`beforeunload` 均优先执行 `syncInline()` 提交未落盘文字。
+7. **原位编辑隐藏重复封面图与延后聚焦防串键（[src/styles/06-editing-and-menus.css](src/styles/06-editing-and-menus.css)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)）**
+   - 原位编辑隐藏只读 `.card-cover` 改为单份 `.inline-body img` 显示；初始聚焦延后至下一 `requestAnimationFrame`，消除 `E` / `N` 键进入编辑偶发写入字母的问题；空白处右键「展开全部折叠分支」改为直接调用 `CanvasViews.expandAll()`；`Enter` 同步支持编辑选中连线；大纲 `setParentEdge` 与 `addBranch` 兼容仅有普通关系线的节点。
+8. **导出细节与小地图边界修正（[src/scripts/09-export.js](src/scripts/09-export.js)、[src/scripts/06-views.js](src/scripts/06-views.js)、[src/scripts/07-render.js](src/scripts/07-render.js)）**
+   - PNG/SVG 导出时临时移除概览/缩略字体放大类、为待办清单项补全 `☑`/`☐` 符号、为类型胶囊绘制色点；小地图计算分区框时过滤隐藏节点。
+9. **自动化测试扩容（[mcp/idea-canvas-mcp.test.mjs](mcp/idea-canvas-mcp.test.mjs)、[tools/canvas-logic.test.mjs](tools/canvas-logic.test.mjs)）**
+   - 新增 MCP 富文本保真/字节上限/同批排序/删卡清理测试，以及前端 `CanvasData` 与 `CanvasLayout` 核心逻辑单元测试。
+
+- **版本标记与备份**
+  - Git 提交及标签：`v2.1.1`
+  - 备份归档目录：`dist/releases/v2.1.1-b14/`
+
+---
+
 ## [2.1.0] (Build 13) - 2026-11-26
 
 本次版本涵盖四个阶段的连续迭代：卡片来源与 MCP 增强、渲染与沉浸窗口重构（Wave 1）、高频交互与工程化拆分（Wave 2），以及全站深浅色闭环与视觉精修（Wave 3）。

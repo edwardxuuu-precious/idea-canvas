@@ -154,6 +154,32 @@ const CanvasExport = (() => {
     return { type: 'text', x: x + box.x, y: y + box.y, lines, font, lineHeight: font.lineHeight };
   }
 
+  function exportBodyText(root) {
+    const blocks = new Set(['DIV', 'P', 'H2', 'H3', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE']);
+    let out = '';
+    function walk(el) {
+      for (const child of el.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          out += child.textContent;
+          continue;
+        }
+        if (child.nodeType !== Node.ELEMENT_NODE) continue;
+        if (child.tagName === 'BR') {
+          out += '\n';
+          continue;
+        }
+        if (blocks.has(child.tagName) && out && !out.endsWith('\n')) out += '\n';
+        if (child.classList?.contains('checklist-item')) {
+          out += child.dataset.done === 'true' ? '☑ ' : '☐ ';
+        }
+        walk(child);
+        if (blocks.has(child.tagName) && out && !out.endsWith('\n')) out += '\n';
+      }
+    }
+    walk(root);
+    return out.replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   function cardShapes(node, view, shapes) {
     const card = view.element;
     if (card.hidden || !card.offsetWidth) return;
@@ -174,11 +200,16 @@ const CanvasExport = (() => {
     });
     const typeBox = !view.type.hidden && boxIn(view.type, card);
     if (typeBox) {
-      const pill = color(getComputedStyle(view.type).backgroundColor);
+      const typeStyle = getComputedStyle(view.type);
+      const pill = color(typeStyle.backgroundColor);
       if (!isTransparent(pill)) shapes.push({ type: 'rect', x: x + typeBox.x, y: y + typeBox.y, w: typeBox.w, h: typeBox.h, r: typeBox.h / 2, fill: pill });
       const label = view.type.querySelector('span');
       const labelBox = label && boxIn(label, card);
-      if (labelBox) shapes.push({ ...textShape(x, y, labelBox, label, label.textContent, 1), lineHeight: labelBox.h });
+      if (labelBox) {
+        const dotX = x + typeBox.x + Math.max(4, (labelBox.x - typeBox.x - 5.5) / 2);
+        shapes.push({ type: 'rect', x: dotX, y: y + typeBox.y + typeBox.h / 2 - 2.75, w: 5.5, h: 5.5, r: 2.75, fill: color(typeStyle.color, '#0f766e') });
+        shapes.push({ ...textShape(x, y, labelBox, label, label.textContent, 1), lineHeight: labelBox.h });
+      }
     }
     const titleBox = !view.title.hidden && boxIn(view.title, card);
     if (titleBox) {
@@ -189,7 +220,7 @@ const CanvasExport = (() => {
     const imageBox = image && boxIn(image, card);
     if (imageBox?.w && imageBox.h) shapes.push({ type: 'image', x: x + imageBox.x, y: y + imageBox.y, w: imageBox.w, h: imageBox.h, r: 8, src: image.src });
     const bodyBox = !view.body.hidden && boxIn(view.body, card);
-    const bodyText = bodyBox ? view.body.innerText.replace(/\n{3,}/g, '\n\n').trim() : '';
+    const bodyText = bodyBox ? exportBodyText(view.body) : '';
     if (bodyText) {
       const font = fontOf(view.body);
       const bottomPad = parseFloat(getComputedStyle(card.querySelector('.card-copy')).paddingBottom) || 12;
@@ -270,7 +301,15 @@ const CanvasExport = (() => {
       boxes.push(box);
     }
     shapes.push(...labels);
-    for (const node of nodes) cardShapes(node, cardIndex.get(node.id), shapes);
+    const hadOverview = viewport.classList.contains('is-overview');
+    const hadZoomedOut = viewport.classList.contains('is-zoomed-out');
+    viewport.classList.remove('is-overview', 'is-zoomed-out');
+    try {
+      for (const node of nodes) cardShapes(node, cardIndex.get(node.id), shapes);
+    } finally {
+      viewport.classList.toggle('is-overview', hadOverview);
+      viewport.classList.toggle('is-zoomed-out', hadZoomedOut);
+    }
 
     const left = Math.min(...boxes.map(box => box.x)) - padding;
     const top = Math.min(...boxes.map(box => box.y)) - padding;

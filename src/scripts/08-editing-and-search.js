@@ -829,18 +829,21 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
     }
   });
 
-  if (focusBody) bodyEditor.focus();
-  else {
-    titleInput.focus();
-    if (!isNew) titleInput.select();
-  }
+  requestAnimationFrame(() => {
+    if (inlineEdit?.node.id !== node.id) return;
+    if (focusBody) bodyEditor.focus();
+    else {
+      titleInput.focus();
+      if (!isNew) titleInput.select();
+    }
+  });
 }
 
 function addBranch(sibling = false) {
   const node = chosenCard();
   if (!node) return;
-  const incoming = sibling ? board().edges.find(edge => edge.to === node.id && edge.kind === 'branch') : null;
-  const parent = sibling ? (incoming ? nodeBy(incoming.from) : null) : node;
+  const parentId = sibling ? hierarchy?.parent.get(node.id) : node.id;
+  const parent = parentId ? nodeBy(parentId) : null;
   openInline(blankCard(null, parent, sibling ? node : null), { isNew: true, parent });
 }
 
@@ -858,12 +861,16 @@ function duplicateSelected() {
   const box = boundsOf(originals);
   const place = freePosition(box.right + 44, box.top, box.w, box.h);
   const ids = new Map(originals.map(node => [node.id, CanvasData.uid()]));
-  const copied = originals.map(node => ({
-    ...node, id: ids.get(node.id), x: coordinate(node.x + place.x - box.left), y: coordinate(node.y + place.y - box.top),
-  }));
+  const copied = originals.map(node => {
+    const clone = structuredClone(node);
+    delete clone.subBoardId;
+    return {
+      ...clone, id: ids.get(node.id), x: coordinate(node.x + place.x - box.left), y: coordinate(node.y + place.y - box.top),
+    };
+  });
   const links = board().edges
     .filter(edge => ids.has(edge.from) && ids.has(edge.to))
-    .map(edge => ({ ...edge, id: CanvasData.uid(), from: ids.get(edge.from), to: ids.get(edge.to) }));
+    .map(edge => ({ ...structuredClone(edge), id: CanvasData.uid(), from: ids.get(edge.from), to: ids.get(edge.to) }));
   checkpoint();
   board().nodes.push(...copied);
   board().edges.push(...links);

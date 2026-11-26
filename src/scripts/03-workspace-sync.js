@@ -481,12 +481,29 @@ async function saveConflictCopy() {
     if (JSON.stringify(last.themes) !== JSON.stringify(pending.themes)) mergeThemes(pending.themes);
     unresolved = false;
     const names = new Set(workspace.boards.map(item => item.name));
+    const localIdMap = new Map(local.map(item => [item.id, CanvasData.uid()]));
     for (const item of local) {
       const base = item.name + '（同步草稿）';
       let name = base;
       for (let number = 2; names.has(name); number++) name = base + ' ' + number;
       names.add(name);
-      const copy = { ...item, id: CanvasData.uid(), name, view: null };
+      const copy = structuredClone(item);
+      copy.id = localIdMap.get(item.id);
+      copy.name = name;
+      copy.view = null;
+      if (copy.settings) {
+        copy.settings.parentId = copy.settings.parentId && localIdMap.has(copy.settings.parentId)
+          ? localIdMap.get(copy.settings.parentId) : null;
+      }
+      for (const node of copy.nodes || []) {
+        if (node.subBoardId) {
+          if (localIdMap.has(node.subBoardId) && localIdMap.get(node.subBoardId) !== copy.id) {
+            node.subBoardId = localIdMap.get(node.subBoardId);
+          } else {
+            delete node.subBoardId;
+          }
+        }
+      }
       workspace.boards.push(copy);
       workspace.activeId = copy.id;
     }

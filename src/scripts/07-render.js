@@ -1047,7 +1047,7 @@ function paintMap() {
   const positions = activeLayoutPositions || gesture?.positions || layoutDraft?.result?.positions;
   const shown = effectiveNodes(positions).filter(node => !visibility.hidden.has(node.id));
   const frameBoxes = current.settings.frames
-    .map(frame => ({ frame, box: CanvasViews.frameRect(frame, positions) }))
+    .map(frame => ({ frame, box: CanvasViews.frameRect(frame, positions, visibility.hidden) }))
     .filter(item => item.box);
   const bounds = boundsOf([
     ...shown,

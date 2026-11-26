@@ -11,7 +11,7 @@ const SUPPORTED_VERSIONS = new Set(['2025-06-18', '2025-03-26', '2024-11-05']);
 const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const VALID_TONES = new Set(['topic', 'idea', 'question', 'action', 'reference']);
 const VALID_EDGE_KINDS = new Set(['branch', 'link']);
-const VALID_PRIORITIES = new Set(['high', 'medium', 'low']);
+const VALID_PRIORITIES = new Set(['high', 'medium', 'low', 'star']);
 const SIZE_LIMIT = 1_000_000;
 const COORD_LIMIT = 1_000_000_000;
 
@@ -89,11 +89,8 @@ function renderInlineLinksHtml(text) {
   return out + escapeHtml(text.slice(last));
 }
 
-export function makeRichBody(body) {
-  if (!body) return undefined;
-  const hasInlineLink =
-    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|([^（()\n；·，。：]+?)（(https?:\/\/[^\s）<>"']+)）/.test(body);
-  if (!hasInlineLink) return undefined;
+function bodyToRichHtml(body) {
+  if (!body) return '';
   const lines = body.split('\n');
   const checklistRe = /^(\s*[-*]\s*\[)([ xX✓])(\]\s+)(.*)$/;
   const out = [];
@@ -117,6 +114,14 @@ export function makeRichBody(body) {
   }
   if (inList) out.push('</ul>');
   return out.join('');
+}
+
+export function makeRichBody(body) {
+  if (!body) return undefined;
+  const hasInlineLink =
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|([^（()\n；·，。：]+?)（(https?:\/\/[^\s）<>"']+)）/.test(body);
+  if (!hasInlineLink) return undefined;
+  return bodyToRichHtml(body);
 }
 
 function estimateCardHeight(title, body, hasMeta = false) {
@@ -196,22 +201,31 @@ export function validateWorkspace(space, label = '画布工作区') {
       if (card.subBoardId !== undefined && !isValidId(card.subBoardId)) {
         throw new CanvasToolError(`${label}子画布 ID 无效：${card.id}`, 'invalid_workspace');
       }
-      if (card.note !== undefined && typeof card.note !== 'string') {
-        throw new CanvasToolError(`${label}卡片备注无效：${card.id}`, 'invalid_workspace');
+      if (card.note !== undefined) {
+        if (typeof card.note !== 'string') {
+          throw new CanvasToolError(`${label}卡片备注无效：${card.id}`, 'invalid_workspace');
+        }
+        if (Buffer.byteLength(card.note, 'utf8') > 16_000) {
+          throw new CanvasToolError(`${label}卡片备注超出 16KB 限制：${card.id}`, 'note_too_long');
+        }
       }
       if (card.sources !== undefined) {
         if (!Array.isArray(card.sources)) {
           throw new CanvasToolError(`${label}卡片来源列表无效：${card.id}`, 'invalid_workspace');
         }
+        if (card.sources.length > 64) {
+          throw new CanvasToolError(`${label}卡片来源数量超出 64 条限制：${card.id}`, 'too_many_sources');
+        }
         for (const src of card.sources) {
+          const trimmedLabel = typeof src?.label === 'string' ? src.label.trim() : '';
           if (
             !src ||
             typeof src !== 'object' ||
-            typeof src.label !== 'string' ||
-            !src.label.trim() ||
-            (src.url !== undefined && typeof src.url !== 'string')
+            !trimmedLabel ||
+            Buffer.byteLength(trimmedLabel, 'utf8') > 600 ||
+            (src.url !== undefined && (typeof src.url !== 'string' || Buffer.byteLength(src.url, 'utf8') > 4096))
           ) {
-            throw new CanvasToolError(`${label}卡片来源项无效：${card.id}`, 'invalid_workspace');
+            throw new CanvasToolError(`${label}卡片来源项无效或超出长度限制：${card.id}`, 'invalid_workspace');
           }
         }
       }
@@ -603,28 +617,57 @@ function recomputeBoardOrder(board) {
   }
 }
 
+function buildOutlineTree(board) {
+  const nodeMap = new Map(board.nodes.map((n) => [n.id, n]));
+  const children = new Map(board.nodes.map((n) => [n.id, []]));
+  const parentOf = new Map();
+  const groups = new Map(board.nodes.map((n) => [n.id, n.id]));
+  const groupOf = (id) => {
+    while (groups.get(id) !== id) {
+      groups.set(id, groups.get(groups.get(id)));
+      id = groups.get(id);
+    }
+    return id;
+  };
+  for (const kind of ['branch', 'link']) {
+    for (const e of board.edges) {
+      if (e.kind !== kind || !children.has(e.from) || !children.has(e.to) || parentOf.has(e.to)) continue;
+      const gFrom = groupOf(e.from);
+      const gTo = groupOf(e.to);
+      if (gFrom === gTo) continue;
+      groups.set(gTo, gFrom);
+      parentOf.set(e.to, e.from);
+      children.get(e.from).push(e.to);
+    }
+  }
+  for (const [, list] of children) {
+    list.sort((a, b) => (nodeMap.get(a)?.order ?? 0) - (nodeMap.get(b)?.order ?? 0));
+  }
+  return { nodeMap, children, parentOf };
+}
+
 function defaultSettings(rootId = 'home') {
   return {
-    layout: { mode: 'double', nodeGap: 30, levelGap: 108, rootId, rows: 'status', columns: 'tone' },
+    layout: { mode: 'double', nodeGap: 24, levelGap: 76, rootId, rows: 'status', columns: 'tone' },
     guides: [],
     appearance: {
-      background: '#f8f5ef',
+      background: '#f5f6f8',
       grid: 'dots',
-      gridColor: '#b8a383',
-      gridSize: 23,
-      accent: '#8c5035',
+      gridColor: '#94a3b8',
+      gridSize: 24,
+      accent: '#0f766e',
       card: {},
-      branch: { width: 2, shape: 'elbow' },
+      branch: {},
       link: {},
     },
     statuses: [
-      { id: 'current', name: '当前任务', color: '#a15c31', icon: '●' },
-      { id: 'recorded', name: '首轮已做', color: '#347853', icon: '✓' },
-      { id: 'candidate', name: '候选待验证', color: '#646091', icon: '◐' },
-      { id: 'pending', name: '待验收', color: '#a77337', icon: '○' },
+      { id: 'pending', name: '待验证', color: '#ad7429', icon: '○' },
+      { id: 'watching', name: '观察中', color: '#397aa8', icon: '◐' },
+      { id: 'reviewed', name: '已复盘', color: '#3d7c61', icon: '✓' },
     ],
     tags: [],
     folded: [],
+    singleBranch: false,
     detail: 'full',
     frames: [],
   };
@@ -682,7 +725,7 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
         revision: state.revision,
         activeId: state.space.activeId,
         boards: state.space.boards.map((b) => {
-          const { parentOf } = buildBranchChildrenMap(b);
+          const { parentOf } = buildOutlineTree(b);
           const roots = findRootIds(b, parentOf)
             .map((id) => b.nodes.find((n) => n.id === id))
             .filter(Boolean);
@@ -701,7 +744,7 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
     case 'canvas_get_outline': {
       const state = await loadWorkspace(cfg);
       const board = resolveBoard(state.space, args);
-      const { nodeMap, children, parentOf } = buildBranchChildrenMap(board);
+      const { nodeMap, children, parentOf } = buildOutlineTree(board);
       const maxDepth = Number.isInteger(args.maxDepth) ? args.maxDepth : 3;
       const startIds = args.rootNodeId ? [args.rootNodeId] : findRootIds(board, parentOf);
       for (const id of startIds) {
@@ -926,10 +969,18 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
           } else {
             if (spec.title !== undefined) node.title = String(spec.title);
             if (spec.body !== undefined) {
-              node.body = String(spec.body);
-              const rb = makeRichBody(node.body);
-              if (rb === undefined) delete node.richBody;
-              else node.richBody = rb;
+              const nextBody = String(spec.body);
+              if (nextBody !== node.body) {
+                node.body = nextBody;
+                const imgs = (node.richBody || '').match(/<img\b[^>]*>/gi) || [];
+                if (imgs.length) {
+                  node.richBody = imgs.join('') + (nextBody ? bodyToRichHtml(nextBody) : '');
+                } else {
+                  const rb = makeRichBody(nextBody);
+                  if (rb === undefined) delete node.richBody;
+                  else node.richBody = rb;
+                }
+              }
             }
             if (spec.tone !== undefined) {
               if (!VALID_TONES.has(spec.tone)) throw new CanvasToolError(`无效卡片 tone：${spec.tone}`, 'invalid_tone');
@@ -996,11 +1047,14 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
             } else if (spec.afterSiblingId && nodeMap.has(spec.afterSiblingId)) {
               node.order = (nodeMap.get(spec.afterSiblingId).order ?? 0) + 0.5;
             } else if (isNew) {
-              node.order = Number.MAX_SAFE_INTEGER;
+              const sibOrders = getChildrenIds(spec.parentId)
+                .filter((cid) => cid !== node.id)
+                .map((cid) => nodeMap.get(cid)?.order ?? 0);
+              node.order = sibOrders.length ? Math.max(...sibOrders) + 1 : 0;
             }
           }
+          recomputeBoardOrder(board);
         }
-        recomputeBoardOrder(board);
         return { boardId: board.id, boardName: board.name, created, updated, nodeCount: board.nodes.length, edgeCount: board.edges.length };
       });
       return { mode: outcome.mode, revision: outcome.revision, ...outcome.result };
@@ -1041,6 +1095,22 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
         }
         board.nodes = board.nodes.filter((n) => !toDelete.has(n.id));
         board.edges = board.edges.filter((e) => !toDelete.has(e.from) && !toDelete.has(e.to));
+        if (board.settings) {
+          if (Array.isArray(board.settings.folded)) {
+            board.settings.folded = board.settings.folded.filter((id) => !toDelete.has(id));
+          }
+          if (Array.isArray(board.settings.frames)) {
+            for (const frame of board.settings.frames) {
+              if (Array.isArray(frame.members)) {
+                frame.members = frame.members.filter((id) => !toDelete.has(id));
+              }
+            }
+            board.settings.frames = board.settings.frames.filter((frame) => frame.members?.length || frame.box);
+          }
+          if (board.settings.layout && toDelete.has(board.settings.layout.rootId)) {
+            board.settings.layout.rootId = null;
+          }
+        }
         recomputeBoardOrder(board);
         return {
           boardId: board.id,
@@ -1119,13 +1189,21 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
       const mirrorBoard = mirrorSpace.boards[0];
       let baselinePath = null;
       try {
-        baselinePath = execFileSync(
+        const legacyPath = execFileSync(
           'git',
           ['rev-parse', '--path-format=absolute', '--git-path', `benebox-canvas-sync-${mirrorBoard.id}.sha256`],
           { cwd: path.dirname(mirrorAbs), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
         ).trim();
+        baselinePath = fs.existsSync(legacyPath)
+          ? legacyPath
+          : execFileSync(
+              'git',
+              ['rev-parse', '--path-format=absolute', '--git-path', `idea-canvas-sync-${mirrorBoard.id}.sha256`],
+              { cwd: path.dirname(mirrorAbs), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+            ).trim();
       } catch {
-        baselinePath = `${mirrorAbs}.${mirrorBoard.id}.sha256`;
+        const legacyLocal = `${mirrorAbs}.${mirrorBoard.id}.sha256`;
+        baselinePath = fs.existsSync(legacyLocal) ? legacyLocal : `${mirrorAbs}.${mirrorBoard.id}.idea.sha256`;
       }
 
       const baseline = fs.existsSync(baselinePath) ? fs.readFileSync(baselinePath, 'utf8').trim() : null;
@@ -1274,7 +1352,7 @@ export const TOOLS = [
               afterSiblingId: { type: 'string', description: '排在同级某张卡片之后' },
               beforeSiblingId: { type: 'string', description: '排在同级某张卡片之前' },
               status: { type: ['string', 'null'] },
-              priority: { type: ['string', 'null'], enum: ['high', 'medium', 'low', null] },
+              priority: { type: ['string', 'null'], enum: ['high', 'medium', 'low', 'star', null] },
               tags: { type: 'array', items: { type: 'string' } },
               pinned: { type: 'boolean' },
               x: { type: 'number' },

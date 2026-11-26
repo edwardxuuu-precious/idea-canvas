@@ -759,7 +759,7 @@ function openContextMenu(event) {
     addContextItem('自动整理画布', autoArrange);
     addContextItem('查看全图', () => { fitView(); focusCanvas(); }, { shortcut: 'F' });
     if (board().settings.folded.length) {
-      addContextItem('展开全部折叠分支', () => CanvasViews.open('view'));
+      addContextItem('展开全部折叠分支', () => CanvasViews.expandAll());
     }
   }
 
@@ -1053,9 +1053,9 @@ document.addEventListener('keydown', event => {
   if (key === 'tab' && !event.shiftKey && event.target === viewport && chosenCard()) {
     event.preventDefault();
     addBranch();
-  } else if (key === 'enter' && chosenCard()) {
+  } else if (key === 'enter' && (chosenCard() || chosenEdge())) {
     event.preventDefault();
-    if (event.target === viewport) addBranch(true);
+    if (chosenCard() && event.target === viewport) addBranch(true);
     else editSelection();
   } else if (key === 'escape') {
     cancelGesture();
@@ -1088,8 +1088,15 @@ window.addEventListener('blur', () => {
   releaseSpace();
 });
 window.addEventListener('resize', paintView);
-window.addEventListener('pagehide', save);
-document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+window.addEventListener('pagehide', () => {
+  if (inlineEdit) syncInline();
+  save();
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) return;
+  if (inlineEdit) syncInline();
+  save();
+});
 function checkOtherWindows() {
   if (syncing || loadFailure || conflict) return;
   try {
@@ -1293,6 +1300,7 @@ if (desktop) {
     return 'done';
   };
   window.ideaCanvasBeforeQuit = async () => {
+    if (inlineEdit) syncInline();
     if (modalNote?.imageJob) await modalNote.imageJob;
     if (modalNote) syncNote();
     clearTimeout(saveTimer);
@@ -1325,6 +1333,7 @@ if (syncing && !loadFailure) {
   window.addEventListener('focus', pullShared);
   if (browserSync) {
     window.addEventListener('beforeunload', event => {
+      if (inlineEdit) syncInline();
       rememberDraft();
       if (dirty()) {
         event.preventDefault();

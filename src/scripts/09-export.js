@@ -44,8 +44,10 @@ async function download(kind) {
 
 function exportScopeIds() {
   const ids = noteIds();
-  if (ids.length !== 1) return ids.length ? ids : null;
-  return CanvasLayout.subtree(hierarchy, ids[0]).filter(id => !visibility.hidden.has(id));
+  if (!ids.length) return null;
+  if (ids.length === 1) return CanvasLayout.subtree(hierarchy, ids[0]).filter(id => !visibility.hidden.has(id));
+  const visible = ids.filter(id => !visibility.hidden.has(id) && nodeBy(id));
+  return visible.length ? visible : null;
 }
 
 function boardToMarkdown() {
@@ -58,7 +60,8 @@ async function exportBoard(kind) {
   closePopover();
   closeSelectionSubPopovers();
   const ids = exportScopeIds();
-  const scope = ids ? '-' + fileSafe(titleOf(nodeBy(noteIds()[0]))) : '';
+  const firstNode = ids?.map(nodeBy).find(Boolean);
+  const scope = firstNode ? '-' + fileSafe(titleOf(firstNode)) : '';
   try {
     let contents = '';
     if (kind === 'md') {
@@ -220,13 +223,60 @@ const CanvasExport = (() => {
     const imageBox = image && boxIn(image, card);
     if (imageBox?.w && imageBox.h) shapes.push({ type: 'image', x: x + imageBox.x, y: y + imageBox.y, w: imageBox.w, h: imageBox.h, r: 8, src: image.src });
     const bodyBox = !view.body.hidden && boxIn(view.body, card);
-    const bodyText = bodyBox ? exportBodyText(view.body) : '';
-    if (bodyText) {
-      const font = fontOf(view.body);
-      const bottomPad = parseFloat(getComputedStyle(card.querySelector('.card-copy')).paddingBottom) || 12;
-      const room = Math.min(bodyBox.h, h - bodyBox.y - bottomPad);
-      const maxLines = Math.floor(room / font.lineHeight + 0.15);
-      if (maxLines > 0) shapes.push(textShape(x, y, bodyBox, view.body, bodyText, maxLines, font));
+    if (bodyBox) {
+      const hasBodyImages = view.body.querySelectorAll('img').length > 0;
+      if (!hasBodyImages) {
+        const bodyText = exportBodyText(view.body);
+        if (bodyText) {
+          const font = fontOf(view.body);
+          const bottomPad = parseFloat(getComputedStyle(card.querySelector('.card-copy')).paddingBottom) || 12;
+          const room = Math.min(bodyBox.h, h - bodyBox.y - bottomPad);
+          const maxLines = bodyBox.h > 0 ? Math.max(1, Math.floor(room / font.lineHeight + 0.25)) : 0;
+          if (maxLines > 0) shapes.push(textShape(x, y, bodyBox, view.body, bodyText, maxLines, font));
+        }
+      } else {
+        const bottomPad = parseFloat(getComputedStyle(card.querySelector('.card-copy')).paddingBottom) || 12;
+        const maxBottom = h - bottomPad;
+        const cardRectBox = card.getBoundingClientRect();
+        const domScale = cardRectBox.width && card.offsetWidth ? cardRectBox.width / card.offsetWidth : 1;
+        const emitBodyNode = item => {
+          if (item.nodeType === Node.TEXT_NODE) {
+            const text = item.textContent.trim();
+            if (!text) return;
+            const range = document.createRange();
+            range.selectNodeContents(item);
+            const r = range.getBoundingClientRect();
+            const relBox = {
+              x: (r.left - cardRectBox.left) / domScale,
+              y: (r.top - cardRectBox.top) / domScale,
+              w: Math.max(20, r.width / domScale),
+              h: Math.max(14, r.height / domScale),
+            };
+            const font = fontOf(item.parentElement || view.body);
+            const maxLines = Math.max(1, Math.floor(Math.min(relBox.h, maxBottom - relBox.y) / font.lineHeight + 0.25));
+            if (relBox.y < maxBottom) shapes.push(textShape(x, y, relBox, view.body, text, maxLines, font));
+            return;
+          }
+          if (item.nodeType !== Node.ELEMENT_NODE) return;
+          if (item.tagName === 'IMG') {
+            const bImgBox = boxIn(item, card);
+            if (bImgBox?.w && bImgBox.h) shapes.push({ type: 'image', x: x + bImgBox.x, y: y + bImgBox.y, w: bImgBox.w, h: bImgBox.h, r: 7, src: item.src });
+            return;
+          }
+          if (item.querySelector('img')) {
+            for (const sub of item.childNodes) emitBodyNode(sub);
+            return;
+          }
+          const subBox = boxIn(item, card);
+          const subText = exportBodyText(item);
+          if (subBox && subText && subBox.y < maxBottom) {
+            const font = fontOf(item);
+            const maxLines = Math.max(1, Math.floor(Math.min(subBox.h, maxBottom - subBox.y) / font.lineHeight + 0.25));
+            shapes.push(textShape(x, y, subBox, item, subText, maxLines, font));
+          }
+        };
+        for (const child of view.body.childNodes) emitBodyNode(child);
+      }
     }
     if (view.meta.hidden) return;
     for (const chip of view.meta.children) {
@@ -263,7 +313,7 @@ const CanvasExport = (() => {
       const memberBox = wanted && boundsOf(members.map(id => rects.get(id)));
       const box = memberBox
         ? { x: memberBox.left - 18, y: memberBox.top - 45, w: memberBox.w + 36, h: memberBox.h + 64 }
-        : CanvasViews.frameRect(frame);
+        : CanvasViews.frameRect(frame, null, visibility.hidden);
       if (!box) continue;
       const font = { css: `620 12.5px ${family}`, size: 12.5, weight: '620', family, lineHeight: 26, color: ink };
       measure.font = font.css;

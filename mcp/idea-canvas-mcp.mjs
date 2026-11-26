@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import { request as httpRequest } from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,7 +11,7 @@ const SUPPORTED_VERSIONS = new Set(['2025-06-18', '2025-03-26', '2024-11-05']);
 const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const VALID_TONES = new Set(['topic', 'idea', 'question', 'action', 'reference']);
 const VALID_EDGE_KINDS = new Set(['branch', 'link']);
-const VALID_PRIORITIES = new Set(['high', 'medium', 'low', 'star']);
+const VALID_PRIORITIES = new Set(['none', 'high', 'medium', 'low', 'star']);
 const SIZE_LIMIT = 1_000_000;
 const COORD_LIMIT = 1_000_000_000;
 
@@ -154,12 +154,15 @@ export function validateWorkspace(space, label = '画布工作区') {
     if (typeof board.name !== 'string') {
       throw new CanvasToolError(`${label}画布名称无效。`, 'invalid_workspace');
     }
-    if (board.view !== null && board.view !== undefined) {
+    if (board.view !== null) {
+      if (!board.view || typeof board.view !== 'object' || Array.isArray(board.view)) {
+        throw new CanvasToolError(`${label}画布视图格式无效。`, 'invalid_workspace');
+      }
       const { x, y, scale } = board.view;
       if (
-        typeof x !== 'number' ||
-        typeof y !== 'number' ||
-        typeof scale !== 'number' ||
+        !Number.isFinite(x) ||
+        !Number.isFinite(y) ||
+        !Number.isFinite(scale) ||
         x < -COORD_LIMIT ||
         x > COORD_LIMIT ||
         y < -COORD_LIMIT ||
@@ -180,10 +183,10 @@ export function validateWorkspace(space, label = '画布工作区') {
       }
       cardIds.add(card.id);
       if (
-        typeof card.x !== 'number' ||
-        typeof card.y !== 'number' ||
-        typeof card.w !== 'number' ||
-        typeof card.h !== 'number' ||
+        !Number.isFinite(card.x) ||
+        !Number.isFinite(card.y) ||
+        !Number.isFinite(card.w) ||
+        !Number.isFinite(card.h) ||
         card.x < -COORD_LIMIT ||
         card.x > COORD_LIMIT ||
         card.y < -COORD_LIMIT ||
@@ -198,10 +201,13 @@ export function validateWorkspace(space, label = '画布工作区') {
       if (!VALID_TONES.has(card.tone) || typeof card.title !== 'string' || typeof card.body !== 'string') {
         throw new CanvasToolError(`${label}卡片类型或文本无效：${card.id}`, 'invalid_workspace');
       }
-      if (card.subBoardId !== undefined && !isValidId(card.subBoardId)) {
+      if (card.richBody !== undefined && card.richBody !== null && typeof card.richBody !== 'string') {
+        throw new CanvasToolError(`${label}卡片富文本无效：${card.id}`, 'invalid_workspace');
+      }
+      if (card.subBoardId !== undefined && card.subBoardId !== null && !isValidId(card.subBoardId)) {
         throw new CanvasToolError(`${label}子画布 ID 无效：${card.id}`, 'invalid_workspace');
       }
-      if (card.note !== undefined) {
+      if (card.note !== undefined && card.note !== null) {
         if (typeof card.note !== 'string') {
           throw new CanvasToolError(`${label}卡片备注无效：${card.id}`, 'invalid_workspace');
         }
@@ -209,7 +215,7 @@ export function validateWorkspace(space, label = '画布工作区') {
           throw new CanvasToolError(`${label}卡片备注超出 16KB 限制：${card.id}`, 'note_too_long');
         }
       }
-      if (card.sources !== undefined) {
+      if (card.sources !== undefined && card.sources !== null) {
         if (!Array.isArray(card.sources)) {
           throw new CanvasToolError(`${label}卡片来源列表无效：${card.id}`, 'invalid_workspace');
         }
@@ -223,7 +229,7 @@ export function validateWorkspace(space, label = '画布工作区') {
             typeof src !== 'object' ||
             !trimmedLabel ||
             Buffer.byteLength(trimmedLabel, 'utf8') > 600 ||
-            (src.url !== undefined && (typeof src.url !== 'string' || Buffer.byteLength(src.url, 'utf8') > 4096))
+            (src.url !== undefined && src.url !== null && (typeof src.url !== 'string' || Buffer.byteLength(src.url, 'utf8') > 4096))
           ) {
             throw new CanvasToolError(`${label}卡片来源项无效或超出长度限制：${card.id}`, 'invalid_workspace');
           }
@@ -276,49 +282,128 @@ export function readLocalApiToken(dataDir) {
   return { enabled: true, token: buf.toString('hex') };
 }
 
+function parseHttpResponse(chunks, expectedStatuses) {
+  const buf = Buffer.concat(chunks);
+  const sep = buf.indexOf('\r\n\r\n');
+  if (sep === -1) return { incomplete: true };
+  const headText = buf.subarray(0, sep).toString('utf8');
+  const [statusLine, ...rawHeaders] = headText.split('\r\n');
+  const m = statusLine.match(/^HTTP\/1\.[01]\s+(\d{3})/);
+  if (!m) {
+    return { error: new CanvasToolError(`无法解析 HTTP 状态行：${statusLine}`, 'http_error') };
+  }
+  const statusCode = Number(m[1]);
+  let isChunked = false;
+  let contentLength = null;
+  for (const h of rawHeaders) {
+    const idx = h.indexOf(':');
+    if (idx <= 0) continue;
+    const name = h.slice(0, idx).trim().toLowerCase();
+    const val = h.slice(idx + 1).trim();
+    if (name === 'transfer-encoding' && val.toLowerCase().includes('chunked')) isChunked = true;
+    if (name === 'content-length' && /^\d+$/.test(val)) contentLength = Number(val);
+  }
+  let bodyBuf = buf.subarray(sep + 4);
+  if (isChunked) {
+    const parts = [];
+    let pos = 0;
+    let sawZero = false;
+    while (pos < bodyBuf.length) {
+      const nl = bodyBuf.indexOf('\r\n', pos);
+      if (nl === -1) return { incomplete: true };
+      const sizeHex = bodyBuf.subarray(pos, nl).toString('ascii').split(';')[0].trim();
+      if (!/^[0-9a-fA-F]+$/.test(sizeHex)) {
+        return { error: new CanvasToolError('本机服务分块响应格式无效。', 'http_error') };
+      }
+      const size = parseInt(sizeHex, 16);
+      if (size === 0) {
+        sawZero = true;
+        break;
+      }
+      const chunkEnd = nl + 2 + size;
+      if (chunkEnd + 2 > bodyBuf.length) return { incomplete: true };
+      parts.push(bodyBuf.subarray(nl + 2, chunkEnd));
+      pos = chunkEnd + 2;
+    }
+    if (!sawZero) return { incomplete: true };
+    bodyBuf = Buffer.concat(parts);
+  } else if (contentLength !== null && bodyBuf.length < contentLength) {
+    return { incomplete: true };
+  } else if (contentLength !== null && bodyBuf.length > contentLength) {
+    bodyBuf = bodyBuf.subarray(0, contentLength);
+  }
+  const text = bodyBuf.toString('utf8');
+  if (!expectedStatuses.includes(statusCode)) {
+    return {
+      error: new CanvasToolError(
+        `想法画布本机服务返回 HTTP ${statusCode}: ${text}`,
+        statusCode === 401 ? 'unauthorized' : statusCode === 409 ? 'conflict' : 'http_error',
+      ),
+    };
+  }
+  return { result: { status: statusCode, body: text } };
+}
+
 function httpCall(port, method, reqPath, { bearer, body, expectedStatuses }) {
   const payload = body === undefined ? undefined : JSON.stringify(body);
   const host = port === 80 ? '127.0.0.1' : `127.0.0.1:${port}`;
-  const headers = { Host: host };
-  if (bearer) headers.Authorization = `Bearer ${bearer}`;
+  const headerLines = [`${method} ${reqPath} HTTP/1.1`, `Host: ${host}`, 'Connection: close'];
+  if (bearer) headerLines.push(`Authorization: Bearer ${bearer}`);
   if (payload !== undefined) {
-    headers['Content-Type'] = 'application/json';
-    headers['Content-Length'] = Buffer.byteLength(payload);
+    headerLines.push('Content-Type: application/json', `Content-Length: ${Buffer.byteLength(payload, 'utf8')}`);
   }
+  const rawRequest = `${headerLines.join('\r\n')}\r\n\r\n${payload ?? ''}`;
+
   return new Promise((resolve, reject) => {
-    const req = httpRequest(
-      {
-        hostname: '127.0.0.1',
-        port,
-        method,
-        path: reqPath,
-        headers,
-        agent: false,
-        signal: AbortSignal.timeout(10_000),
-      },
-      async (res) => {
-        const chunks = [];
-        for await (const chunk of res) chunks.push(chunk);
-        const text = Buffer.concat(chunks).toString('utf8');
-        if (!expectedStatuses.includes(res.statusCode)) {
-          reject(
-            new CanvasToolError(
-              `想法画布本机服务返回 HTTP ${res.statusCode}: ${text}`,
-              res.statusCode === 401 ? 'unauthorized' : res.statusCode === 409 ? 'conflict' : 'http_error',
-            ),
-          );
-          return;
-        }
-        resolve({ status: res.statusCode, body: text });
-      },
-    );
-    req.on('error', (err) => reject(err));
-    req.end(payload);
+    const sock = net.createConnection({ host: '127.0.0.1', port });
+    const chunks = [];
+    let settled = false;
+    const settleOk = (res) => {
+      if (settled) return;
+      settled = true;
+      sock.destroy();
+      resolve(res);
+    };
+    const settleErr = (err) => {
+      if (settled) return;
+      settled = true;
+      sock.destroy();
+      reject(err);
+    };
+    sock.setTimeout(10_000, () => {
+      settleErr(Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' }));
+    });
+    sock.on('error', (err) => {
+      const parsed = chunks.length ? parseHttpResponse(chunks, expectedStatuses) : null;
+      if (parsed?.error) return settleErr(parsed.error);
+      if (parsed?.result) return settleOk(parsed.result);
+      settleErr(err);
+    });
+    sock.on('connect', () => {
+      sock.write(rawRequest);
+    });
+    sock.on('data', (chunk) => {
+      chunks.push(chunk);
+      const parsed = parseHttpResponse(chunks, expectedStatuses);
+      if (parsed.error) return settleErr(parsed.error);
+      if (parsed.result) return settleOk(parsed.result);
+    });
+    sock.on('end', () => {
+      if (settled) return;
+      const parsed = parseHttpResponse(chunks, expectedStatuses);
+      if (parsed.error) return settleErr(parsed.error);
+      if (parsed.result) return settleOk(parsed.result);
+      settleErr(new CanvasToolError('本机服务 HTTP 响应不完整。', 'http_error'));
+    });
   });
 }
 
 function checkDirectoryLock(dataDir) {
   if (!fs.existsSync(dataDir)) return false;
+  const stat = fs.lstatSync(dataDir);
+  if (!stat.isDirectory()) {
+    throw new CanvasToolError(`画布数据路径不是有效目录（或为符号链接）：${dataDir}`, 'invalid_data_dir');
+  }
   const py = [
     'import fcntl, os, sys',
     'fd = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)',
@@ -368,6 +453,10 @@ function offlineRead(dataDir) {
   if (!fs.existsSync(filePath)) {
     return { mode: 'offline', revision: 'empty', space: null };
   }
+  const stat = fs.lstatSync(filePath);
+  if (!stat.isFile()) {
+    throw new CanvasToolError('画布数据.json 必须是普通文件，且不能是符号链接。', 'invalid_workspace');
+  }
   const bytes = fs.readFileSync(filePath);
   const space = validateWorkspace(JSON.parse(bytes.toString('utf8')), '离线画布数据');
   return { mode: 'offline', revision: `sha256-${sha256Hex(bytes)}`, space };
@@ -380,16 +469,48 @@ function offlineWrite(dataDir, nextJson, expectedRevision) {
   fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
 
   const py = [
-    'import fcntl, hashlib, os, sys, uuid',
+    'import errno, fcntl, hashlib, os, stat, sys, uuid',
     'data_dir, expected_rev, next_file, backup_daily, backup_del = sys.argv[1:6]',
+    'def write_all(fd, payload):',
+    '    mv = memoryview(payload)',
+    '    written = 0',
+    '    while written < len(mv):',
+    '        n = os.write(fd, mv[written:])',
+    '        if n <= 0: raise OSError(errno.EIO, "short write")',
+    '        written += n',
+    'def safe_stage(directory, filename, payload):',
+    '    tmp = os.path.join(directory, ".写入-" + str(uuid.uuid4()) + ".tmp")',
+    '    sfd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)',
+    '    try:',
+    '        write_all(sfd, payload); os.fsync(sfd)',
+    '        os.close(sfd); sfd = -1',
+    '        os.replace(tmp, os.path.join(directory, filename))',
+    '    except:',
+    '        if sfd >= 0: os.close(sfd)',
+    '        try: os.unlink(tmp)',
+    '        except OSError: pass',
+    '        raise',
     'with open(next_file, "rb") as f: next_bytes = f.read()',
     'fd = os.open(data_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)',
     'try:',
     '    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)',
     '    main_path = os.path.join(data_dir, "画布数据.json")',
     '    prev_bytes = None',
-    '    if os.path.exists(main_path):',
-    '        with open(main_path, "rb") as f: prev_bytes = f.read()',
+    '    try:',
+    '        rfd = os.open(main_path, os.O_RDONLY | os.O_NOFOLLOW)',
+    '        try:',
+    '            st = os.fstat(rfd)',
+    '            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_nlink != 1:',
+    '                raise RuntimeError("画布数据.json 必须是当前用户拥有的普通文件，且不能是链接。")',
+    '            chunks = []',
+    '            while True:',
+    '                part = os.read(rfd, 1048576)',
+    '                if not part: break',
+    '                chunks.append(part)',
+    '            prev_bytes = b"".join(chunks)',
+    '        finally: os.close(rfd)',
+    '    except FileNotFoundError:',
+    '        prev_bytes = None',
     '    cur_rev = "empty" if prev_bytes is None else "sha256-" + hashlib.sha256(prev_bytes).hexdigest()',
     '    if expected_rev and cur_rev != expected_rev:',
     '        print("CONFLICT:" + cur_rev)',
@@ -397,26 +518,10 @@ function offlineWrite(dataDir, nextJson, expectedRevision) {
     '    if prev_bytes is not None and backup_daily:',
     '        daily_path = os.path.join(data_dir, "历史备份", backup_daily)',
     '        if not os.path.exists(daily_path):',
-    '            tmp_d = os.path.join(data_dir, "历史备份", ".写入-" + str(uuid.uuid4()) + ".tmp")',
-    '            dfd = os.open(tmp_d, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)',
-    '            try:',
-    '                os.write(dfd, prev_bytes); os.fsync(dfd)',
-    '            finally: os.close(dfd)',
-    '            os.replace(tmp_d, daily_path)',
+    '            safe_stage(os.path.join(data_dir, "历史备份"), backup_daily, prev_bytes)',
     '    if prev_bytes is not None and backup_del:',
-    '        del_path = os.path.join(data_dir, "历史备份", backup_del)',
-    '        tmp_x = os.path.join(data_dir, "历史备份", ".写入-" + str(uuid.uuid4()) + ".tmp")',
-    '        xfd = os.open(tmp_x, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)',
-    '        try:',
-    '            os.write(xfd, prev_bytes); os.fsync(xfd)',
-    '        finally: os.close(xfd)',
-    '        os.replace(tmp_x, del_path)',
-    '    tmp_main = os.path.join(data_dir, ".写入-" + str(uuid.uuid4()) + ".tmp")',
-    '    mfd = os.open(tmp_main, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)',
-    '    try:',
-    '        os.write(mfd, next_bytes); os.fsync(mfd)',
-    '    finally: os.close(mfd)',
-    '    os.replace(tmp_main, main_path)',
+    '        safe_stage(os.path.join(data_dir, "历史备份"), backup_del, prev_bytes)',
+    '    safe_stage(data_dir, "画布数据.json", next_bytes)',
     '    os.fsync(fd)',
     '    print("sha256-" + hashlib.sha256(next_bytes).hexdigest())',
     'finally:',
@@ -694,6 +799,8 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
         } catch (err) {
           mode = checkDirectoryLock(cfg.dataDir) ? 'locked_or_unauthorized' : 'offline';
         }
+      } else if (checkDirectoryLock(cfg.dataDir)) {
+        mode = 'locked_or_unauthorized';
       }
       let state = null;
       if (mode === 'live' || mode === 'offline') {
@@ -784,7 +891,7 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
       const state = await loadWorkspace(cfg);
       const board = resolveBoard(state.space, args);
       const { nodeMap, children, parentOf } = buildBranchChildrenMap(board);
-      const limit = Math.min(Number.isInteger(args.limit) ? args.limit : 50, 200);
+      const limit = Number.isInteger(args.limit) ? Math.max(0, Math.min(args.limit, 200)) : 50;
       let candidateIds = null;
 
       if (Array.isArray(args.cardIds) && args.cardIds.length > 0) {
@@ -811,6 +918,7 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
       const q = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
       const matched = [];
       for (const id of candidateIds) {
+        if (matched.length >= limit) break;
         const n = nodeMap.get(id);
         if (!n) continue;
         if (args.status && n.status !== args.status) continue;
@@ -912,6 +1020,11 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
           if (!spec || !isValidId(spec.id)) {
             throw new CanvasToolError(`无效卡片 ID：${spec?.id}`, 'invalid_id');
           }
+          for (const numField of ['x', 'y', 'w', 'h']) {
+            if (spec[numField] !== undefined && !Number.isFinite(spec[numField])) {
+              throw new CanvasToolError(`卡片 ${numField} 坐标或尺寸数值无效：${spec.id}`, 'invalid_args');
+            }
+          }
           let node = nodeMap.get(spec.id);
           const isNew = !node;
           if (isNew) {
@@ -922,14 +1035,14 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
               throw new CanvasToolError(`无效卡片 tone：${tone}`, 'invalid_tone');
             }
             const lines = body ? body.split('\n').length : 1;
-            let x = typeof spec.x === 'number' ? spec.x : 0;
-            let y = typeof spec.y === 'number' ? spec.y : 0;
-            if (spec.parentId && (typeof spec.x !== 'number' || typeof spec.y !== 'number')) {
+            let x = Number.isFinite(spec.x) ? spec.x : 0;
+            let y = Number.isFinite(spec.y) ? spec.y : 0;
+            if (spec.parentId && (!Number.isFinite(spec.x) || !Number.isFinite(spec.y))) {
               const parent = nodeMap.get(spec.parentId);
               if (!parent) throw new CanvasToolError(`找不到父卡片：${spec.parentId}`, 'node_not_found');
               const sibIds = getChildrenIds(spec.parentId);
-              if (typeof spec.x !== 'number') x = parent.x + (parent.w || 305) + 108;
-              if (typeof spec.y !== 'number') {
+              if (!Number.isFinite(spec.x)) x = parent.x + (parent.w || 305) + 108;
+              if (!Number.isFinite(spec.y)) {
                 if (spec.beforeSiblingId && nodeMap.has(spec.beforeSiblingId)) {
                   y = nodeMap.get(spec.beforeSiblingId).y - 200;
                 } else if (spec.afterSiblingId && nodeMap.has(spec.afterSiblingId)) {
@@ -954,8 +1067,8 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
               id: spec.id,
               x,
               y,
-              w: typeof spec.w === 'number' ? spec.w : 310,
-              h: typeof spec.h === 'number' ? spec.h : estimateCardHeight(title, body, hasMeta),
+              w: Number.isFinite(spec.w) ? spec.w : 310,
+              h: Number.isFinite(spec.h) ? spec.h : estimateCardHeight(title, body, hasMeta),
               tone,
               title,
               body,
@@ -986,10 +1099,10 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
               if (!VALID_TONES.has(spec.tone)) throw new CanvasToolError(`无效卡片 tone：${spec.tone}`, 'invalid_tone');
               node.tone = spec.tone;
             }
-            if (typeof spec.x === 'number') node.x = spec.x;
-            if (typeof spec.y === 'number') node.y = spec.y;
-            if (typeof spec.w === 'number') node.w = spec.w;
-            if (typeof spec.h === 'number') node.h = spec.h;
+            if (Number.isFinite(spec.x)) node.x = spec.x;
+            if (Number.isFinite(spec.y)) node.y = spec.y;
+            if (Number.isFinite(spec.w)) node.w = spec.w;
+            if (Number.isFinite(spec.h)) node.h = spec.h;
             updated.push(node.id);
           }
 
@@ -1018,7 +1131,7 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
             else node.status = String(spec.status);
           }
           if (spec.priority !== undefined) {
-            if (spec.priority === null || spec.priority === '') delete node.priority;
+            if (spec.priority === null || spec.priority === '' || spec.priority === 'none') delete node.priority;
             else if (VALID_PRIORITIES.has(spec.priority)) node.priority = spec.priority;
             else throw new CanvasToolError(`无效 priority：${spec.priority}`, 'invalid_priority');
           }
@@ -1039,19 +1152,26 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
             if (spec.branchStyle === null) delete node.branchStyle;
             else node.branchStyle = spec.branchStyle;
           }
-          if (spec.parentId) {
+          if (spec.beforeSiblingId !== undefined && spec.beforeSiblingId !== null && !nodeMap.has(spec.beforeSiblingId)) {
+            throw new CanvasToolError(`找不到参照同级卡片 beforeSiblingId：${spec.beforeSiblingId}`, 'node_not_found');
+          }
+          if (spec.afterSiblingId !== undefined && spec.afterSiblingId !== null && !nodeMap.has(spec.afterSiblingId)) {
+            throw new CanvasToolError(`找不到参照同级卡片 afterSiblingId：${spec.afterSiblingId}`, 'node_not_found');
+          }
+          if (spec.parentId === null || spec.parentId === '') {
+            board.edges = board.edges.filter((e) => !(e.kind === 'branch' && e.to === node.id));
+          } else if (spec.parentId) {
             ensureBranchEdge(spec.parentId, node.id);
-            // Adjust order relative to siblings if requested
-            if (spec.beforeSiblingId && nodeMap.has(spec.beforeSiblingId)) {
-              node.order = (nodeMap.get(spec.beforeSiblingId).order ?? 0) - 0.5;
-            } else if (spec.afterSiblingId && nodeMap.has(spec.afterSiblingId)) {
-              node.order = (nodeMap.get(spec.afterSiblingId).order ?? 0) + 0.5;
-            } else if (isNew) {
-              const sibOrders = getChildrenIds(spec.parentId)
-                .filter((cid) => cid !== node.id)
-                .map((cid) => nodeMap.get(cid)?.order ?? 0);
-              node.order = sibOrders.length ? Math.max(...sibOrders) + 1 : 0;
-            }
+          }
+          if (spec.beforeSiblingId) {
+            node.order = (nodeMap.get(spec.beforeSiblingId).order ?? 0) - 0.5;
+          } else if (spec.afterSiblingId) {
+            node.order = (nodeMap.get(spec.afterSiblingId).order ?? 0) + 0.5;
+          } else if (spec.parentId && isNew) {
+            const sibOrders = getChildrenIds(spec.parentId)
+              .filter((cid) => cid !== node.id)
+              .map((cid) => nodeMap.get(cid)?.order ?? 0);
+            node.order = sibOrders.length ? Math.max(...sibOrders) + 1 : 0;
           }
           recomputeBoardOrder(board);
         }
@@ -1182,7 +1302,16 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
         throw new CanvasToolError('direction 必须是 check、pull 或 push。', 'invalid_args');
       }
       const mirrorAbs = path.resolve(args.mirrorPath);
-      const mirrorSpace = validateWorkspace(JSON.parse(fs.readFileSync(mirrorAbs, 'utf8')), '项目镜像');
+      if (!fs.existsSync(mirrorAbs)) {
+        throw new CanvasToolError(`找不到项目镜像文件：${mirrorAbs}`, 'mirror_not_found');
+      }
+      let mirrorJson;
+      try {
+        mirrorJson = JSON.parse(fs.readFileSync(mirrorAbs, 'utf8'));
+      } catch {
+        throw new CanvasToolError(`项目镜像 JSON 无法解析：${mirrorAbs}`, 'invalid_mirror');
+      }
+      const mirrorSpace = validateWorkspace(mirrorJson, '项目镜像');
       if (mirrorSpace.boards.length !== 1) {
         throw new CanvasToolError('项目镜像文件必须只包含 1 张画布。', 'invalid_mirror');
       }
@@ -1237,7 +1366,12 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
         return { mode: state.mode, boardId: mirrorBoard.id, alignment: 'same', synced: false };
       }
       if (direction === 'pull') {
-        const portable = { version: state.space.version, activeId: appBoard.id, boards: [appBoard], themes: [] };
+        const portable = {
+          version: state.space.version,
+          activeId: appBoard.id,
+          boards: [appBoard],
+          themes: mirrorSpace.themes ?? [],
+        };
         fs.writeFileSync(mirrorAbs, `${JSON.stringify(portable, null, 2)}\n`, 'utf8');
         fs.writeFileSync(baselinePath, `${appDigest}\n`, { mode: 0o600 });
         return {
@@ -1256,7 +1390,12 @@ export async function runTool(name, args = {}, cfgOverrides = {}) {
       const saved = await saveWorkspace(cfg, state.revision, nextSpace, state);
       const updatedAppBoard = saved.space.boards.find((b) => b.id === mirrorBoard.id);
       const newDigest = boardDigest(updatedAppBoard);
-      const portable = { version: saved.space.version, activeId: updatedAppBoard.id, boards: [updatedAppBoard], themes: [] };
+      const portable = {
+        version: saved.space.version,
+        activeId: updatedAppBoard.id,
+        boards: [updatedAppBoard],
+        themes: mirrorSpace.themes ?? [],
+      };
       fs.writeFileSync(mirrorAbs, `${JSON.stringify(portable, null, 2)}\n`, 'utf8');
       fs.writeFileSync(baselinePath, `${newDigest}\n`, { mode: 0o600 });
       return {
@@ -1348,11 +1487,11 @@ export const TOOLS = [
                 },
               },
               tone: { type: 'string', enum: ['topic', 'idea', 'question', 'action', 'reference'] },
-              parentId: { type: 'string', description: '挂载到此父卡片下（自动创建或移动 branch 连线）' },
+              parentId: { type: ['string', 'null'], description: '挂载到此父卡片下；传 null 可解除父子连线升为顶层卡片' },
               afterSiblingId: { type: 'string', description: '排在同级某张卡片之后' },
               beforeSiblingId: { type: 'string', description: '排在同级某张卡片之前' },
               status: { type: ['string', 'null'] },
-              priority: { type: ['string', 'null'], enum: ['high', 'medium', 'low', 'star', null] },
+              priority: { type: ['string', 'null'], enum: ['none', 'high', 'medium', 'low', 'star', null] },
               tags: { type: 'array', items: { type: 'string' } },
               pinned: { type: 'boolean' },
               x: { type: 'number' },
@@ -1503,14 +1642,22 @@ function startStdioServer() {
     buffer = Buffer.concat([buffer, chunk]);
     while (buffer.length > 0) {
       if (framing === null) {
-        const textHead = buffer.subarray(0, Math.min(buffer.length, 32)).toString('utf8');
-        if (/^Content-Length:/i.test(textHead)) framing = 'lsp';
-        else if (textHead.trimStart().startsWith('{')) framing = 'line';
-        else if (!textHead.trim()) {
-          buffer = Buffer.alloc(0);
-          break;
-        } else {
+        const probe = buffer.subarray(0, Math.min(buffer.length, 64)).toString('utf8');
+        if (!probe.trim()) {
+          if (!probe.includes('\n')) break;
+          const nlIdx = buffer.indexOf('\n');
+          buffer = buffer.subarray(nlIdx + 1);
+          continue;
+        }
+        const trimmedStart = probe.trimStart();
+        if (trimmedStart.startsWith('{')) {
           framing = 'line';
+        } else if (/^Content-(?:Length|Type):/i.test(probe) || (buffer.includes('\r\n\r\n') && /Content-Length:/i.test(buffer.subarray(0, buffer.indexOf('\r\n\r\n')).toString('utf8')))) {
+          framing = 'lsp';
+        } else if (probe.includes('\n')) {
+          framing = 'line';
+        } else {
+          break;
         }
       }
       if (framing === 'lsp') {
@@ -1527,13 +1674,13 @@ function startStdioServer() {
         if (buffer.length < end) break;
         const body = buffer.subarray(sepIdx + 4, end).toString('utf8');
         buffer = buffer.subarray(end);
-        chain = chain.then(() => processMessage(body));
+        chain = chain.then(() => processMessage(body)).catch(() => {});
       } else {
         const nlIdx = buffer.indexOf('\n');
         if (nlIdx === -1) break;
         const line = buffer.subarray(0, nlIdx).toString('utf8');
         buffer = buffer.subarray(nlIdx + 1);
-        chain = chain.then(() => processMessage(line));
+        chain = chain.then(() => processMessage(line)).catch(() => {});
       }
     }
   });

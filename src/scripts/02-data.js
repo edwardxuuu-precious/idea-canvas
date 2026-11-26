@@ -67,17 +67,11 @@ const CanvasData = (() => {
     const items = [];
     for (const entry of value) {
       if (!entry || typeof entry !== 'object') continue;
-      const label = asText(entry.label, 160);
+      const label = utf8Slice(asText(entry.label, 160), 600);
       if (!label) continue;
-      const rawUrl = typeof entry.url === 'string' ? entry.url.trim() : '';
-      let url = '';
-      if (rawUrl) {
-        const ext = safeExternalUrl(rawUrl);
-        if (ext) url = ext;
-        else if (/^(?:\.\.?\/)?[A-Za-z0-9._/-]+(?:#[A-Za-z0-9._-]+)?$/.test(rawUrl) && rawUrl.length <= 2048) url = rawUrl;
-      }
+      const url = cleanSourceUrl(entry.url);
       items.push(url ? { label, url } : { label });
-      if (items.length >= 40) break;
+      if (items.length >= 64) break;
     }
     return items;
   }
@@ -202,12 +196,12 @@ const CanvasData = (() => {
       requireValue(typeof nodeTone === 'string' && Object.hasOwn(tone, nodeTone) && typeof title === 'string' && typeof body === 'string', '卡片类型或文字内容无效。');
       nodeIds.add(id);
       const result = { id, x, y, w, h, tone: nodeTone, title, body };
-      if (richBody !== undefined) {
+      if (richBody !== undefined && richBody !== null) {
         requireValue(typeof richBody === 'string', '卡片富文本内容无效。');
         const clean = richContent(richBody);
         if (clean.html) Object.assign(result, { body: clean.text, richBody: clean.html });
       }
-      if (typeof node.note === 'string' && node.note.trim()) result.note = [...node.note.trim()].slice(0, 2000).join('');
+      if (typeof node.note === 'string' && node.note.trim()) result.note = utf8Slice(node.note.trim(), 16_000);
       const sources = parseSources(node.sources);
       if (sources.length) result.sources = sources;
       if (node.style) result.style = styles(node.style, 'card');

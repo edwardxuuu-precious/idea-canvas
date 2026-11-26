@@ -9,6 +9,22 @@ const imageDataLimit = 800_000;
 const imageType = /^image\/(png|jpeg|webp|gif)$/i;
 const imageData = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i;
 
+const utf8Encoder = new TextEncoder();
+
+function utf8Slice(value, maxBytes) {
+  const text = typeof value === 'string' ? value : String(value || '');
+  if (!text || utf8Encoder.encode(text).length <= maxBytes) return text;
+  let bytes = 0;
+  let out = '';
+  for (const char of text) {
+    const len = utf8Encoder.encode(char).length;
+    if (bytes + len > maxBytes) break;
+    bytes += len;
+    out += char;
+  }
+  return out;
+}
+
 function safeExternalUrl(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -19,6 +35,17 @@ function safeExternalUrl(value) {
   } catch {
     return null;
   }
+}
+
+function cleanSourceUrl(rawUrl) {
+  const trimmed = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+  if (!trimmed || utf8Encoder.encode(trimmed).length > 4096) return '';
+  const ext = safeExternalUrl(trimmed);
+  if (ext) return utf8Encoder.encode(ext).length <= 4096 ? ext : '';
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/[\u0000-\u001f\u007f]/.test(trimmed)) {
+    return trimmed;
+  }
+  return '';
 }
 
 function richFragment(html) {

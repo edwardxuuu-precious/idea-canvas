@@ -45,6 +45,7 @@ if [[ -d "$archive" ]]; then
 fi
 staged_archive="$(mktemp "$dist_dir/.release.XXXXXXXX")"
 /usr/bin/ditto -c -k --keepParent --norsrc --noextattr "$candidate" "$staged_archive"
+chmod 0644 "$staged_archive"
 mv -f -- "$staged_archive" "$archive"
 
 release_tag="v${version}-b${build_no}"

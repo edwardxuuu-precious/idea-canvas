@@ -778,6 +778,7 @@ const CanvasInspector = (() => {
       if (event.target.closest('[data-inspector-close]')) close();
     });
     panel.addEventListener('keydown', event => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') return;
       event.stopPropagation();
       if (event.key === 'Escape') {
         close();

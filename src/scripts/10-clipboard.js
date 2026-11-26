@@ -74,29 +74,40 @@ async function copySelectionAsMarkdown() {
 }
 
 function parseMarkdownTree(raw) {
-  const rawLines = raw.replace(/\r\n?/g, '\n').split('\n').filter(line => line.trim());
-  if (rawLines.length < 2) return null;
+  const rawLines = raw.replace(/\r\n?/g, '\n').split('\n');
   const items = [];
   let minHeading = 7;
   let hasStructured = false;
+  let inFence = false;
   for (const rawLine of rawLines) {
-    const headingMatch = rawLine.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      hasStructured = true;
-      const level = headingMatch[1].length;
-      minHeading = Math.min(minHeading, level);
-      items.push({ kind: 'heading', level, text: headingMatch[2].trim() });
+    const trimmed = rawLine.trim();
+    if (/^```/.test(trimmed)) {
+      inFence = !inFence;
+      if (items.length) {
+        items[items.length - 1].notes = (items[items.length - 1].notes || '') + (items[items.length - 1].notes ? '\n' : '') + rawLine;
+      }
       continue;
     }
-    const listMatch = rawLine.match(/^([ \t]*)(?:[-*+]|\d+\.)\s+(.+)$/);
-    if (listMatch) {
-      hasStructured = true;
-      const indent = listMatch[1].replace(/\t/g, '  ').length;
-      items.push({ kind: 'list', indent, text: listMatch[2].trim() });
-      continue;
+    if (!inFence && !trimmed) continue;
+    if (!inFence) {
+      const headingMatch = rawLine.match(/^(#{1,6})\s+(.+)$/);
+      if (headingMatch) {
+        hasStructured = true;
+        const level = headingMatch[1].length;
+        minHeading = Math.min(minHeading, level);
+        items.push({ kind: 'heading', level, text: headingMatch[2].trim() });
+        continue;
+      }
+      const listMatch = rawLine.match(/^([ \t]*)(?:[-*+]|\d+\.)\s+(.+)$/);
+      if (listMatch) {
+        hasStructured = true;
+        const indent = listMatch[1].replace(/\t/g, '  ').length;
+        items.push({ kind: 'list', indent, text: listMatch[2].trim() });
+        continue;
+      }
     }
     if (items.length) {
-      items[items.length - 1].notes = (items[items.length - 1].notes || '') + (items[items.length - 1].notes ? '\n' : '') + rawLine.trim();
+      items[items.length - 1].notes = (items[items.length - 1].notes || '') + (items[items.length - 1].notes !== undefined ? '\n' : '') + (inFence ? rawLine : trimmed);
     }
   }
   if (!hasStructured || items.length < 2) return null;
@@ -115,12 +126,13 @@ function parseMarkdownTree(raw) {
     }
     while (stack.length && stack.at(-1).depth >= depth) stack.pop();
     const text = item.text;
-    const isCheck = /^\[([ xX]?)\]\s+/.test(text);
-    const cleanTitle = text.replace(/^\[([ xX]?)\]\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1');
+    const isCheck = /^\s*\[([ xX✓]?)\]\s+/.test(text);
+    const cleanTitle = text.replace(/^\s*\[([ xX✓]?)\]\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1');
     const tone = nodes.length === 0 ? 'topic'
       : isCheck ? 'action'
       : /[?？]$/.test(cleanTitle) ? 'question' : 'idea';
-    const body = isCheck ? `- ${text}` : (item.notes || '');
+    const trimmedNotes = (item.notes || '').trim();
+    const body = isCheck ? (`- ${text}` + (trimmedNotes ? `\n${trimmedNotes}` : '')) : trimmedNotes;
     const node = {
       id: CanvasData.uid(), x: 0, y: 0, w: 260, h: body ? 140 : 62,
       tone, title: cleanTitle, body,
@@ -327,7 +339,14 @@ function extractToSubBoard() {
 
   const subNodes = current.nodes.filter(n => movedSet.has(n.id)).map(n => {
     const clone = structuredClone(n);
-    delete clone.subBoardId;
+    if (portalNode && n.id === portalNode.id) {
+      delete clone.subBoardId;
+    } else if (clone.subBoardId) {
+      const childBoard = workspace.boards.find(b => b.id === clone.subBoardId);
+      if (childBoard && childBoard.settings.parentId === current.id) {
+        childBoard.settings.parentId = subBoard.id;
+      }
+    }
     return clone;
   });
   const subEdges = current.edges.filter(e => movedSet.has(e.from) && movedSet.has(e.to)).map(e => structuredClone(e));
@@ -340,8 +359,9 @@ function extractToSubBoard() {
     portalNode.subBoardId = subBoard.id;
     current.nodes = current.nodes.filter(n => !removeIds.has(n.id));
     current.edges = current.edges.filter(e => !removeIds.has(e.from) && !removeIds.has(e.to));
-    current.settings.folded = current.settings.folded.filter(id => !removeIds.has(id));
+    current.settings.folded = current.settings.folded.filter(id => !movedSet.has(id));
     for (const frame of current.settings.frames) frame.members = frame.members.filter(id => !removeIds.has(id));
+    if (removeIds.has(current.settings.layout.rootId)) current.settings.layout.rootId = portalNode.id;
     selection = { kind: 'cards', ids: new Set([portalNode.id]) };
   } else {
     const selectedNodes = current.nodes.filter(n => movedSet.has(n.id));
@@ -378,6 +398,7 @@ function extractToSubBoard() {
     current.edges = rewired;
     current.settings.folded = current.settings.folded.filter(id => !movedSet.has(id));
     for (const frame of current.settings.frames) frame.members = frame.members.filter(id => !movedSet.has(id));
+    if (movedSet.has(current.settings.layout.rootId)) current.settings.layout.rootId = null;
     selection = { kind: 'cards', ids: new Set([portal.id]) };
   }
   current.settings.frames = current.settings.frames.filter(frame => frame.members.length || frame.box);

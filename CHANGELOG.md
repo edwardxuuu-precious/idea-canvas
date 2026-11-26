@@ -6,6 +6,34 @@
 
 ---
 
+## [2.1.2] (Build 15) - 2026-11-26
+
+围绕多轮代码审计与浏览器端到端压测，集中修复原位编辑生命周期、快捷键防串键、折叠子树与分区联动、多图导出、macOS 隐藏窗口弹窗与路径校验，以及 MCP 本地回环和协议边界问题。
+
+### 修复清单（更新了什么 / 为什么更新 / 具体做了什么）
+
+1. **原位编辑完整卡片 DOM、未提交清理与确定性快捷键防串键（[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)）**
+   - **为什么**：原位新建卡片此前挂载精简 DOM，缺失连线桩、宽调抓手、折叠按钮与 `ResizeObserver` 监听；在空新卡上按 `Shift+Enter` 后按 `Tab` 会产生悬挂连线；`rAF` 延时聚焦会与 Chromium `char` 事件竞态导致 `N`/`E` 首字符偶发写入输入框；`e.stopPropagation()` 阻断编辑与面板内 `⌘K`。
+   - **做了什么**：抽出完整卡片构建函数 `createCardView` 供新建与渲染共用；在 `finishInline`、`cancelInline` 解除 `ResizeObserver` 观察并移除未提交临时 DOM；校验 `Tab` 创建子卡前父节点已真实写入画布；为 `N`/`E` 触发的 `openInline` 与 `openText` 增加 `triggerKey` 的 `beforeinput`/`input` 一次性抑制并保持同步聚焦；允许 `⌘K`/`Ctrl+K` 从原位编辑、[属性面板](src/scripts/05-inspector.js) 与分区改名框冒泡；在 `runAction` 与 `openNote` 执行前自动收口 `inlineEdit`；修复点击底部「来源 · 备注」胶囊无法二次关闭浮层的问题。
+2. **折叠分支建子卡、拖拽改挂、分区移动与多图导出修复（[src/scripts/06-views.js](src/scripts/06-views.js)、[src/scripts/07-render.js](src/scripts/07-render.js)、[src/scripts/09-export.js](src/scripts/09-export.js)、[src/scripts/10-clipboard.js](src/scripts/10-clipboard.js)、[src/scripts/11-input-and-startup.js](src/scripts/11-input-and-startup.js)）**
+   - **为什么**：向已折叠父卡新增子卡会立即被隐藏；把折叠节点拖拽改挂或整组拖动时会把已折叠后代留在旧坐标；无 `box` 分区先改坐标后计算边界导致无法拖出分区；多图无文卡片会隐藏第 2 张起图片；正文插图导出时文字与图片重叠；提取折叠子树为子画布后残留父卡折叠标记。
+   - **做了什么**：新建子卡写入时自动展开父卡；`extractToSubBoard` 改用 `!movedSet.has(id)` 清理折叠记录，保留下级 `subBoardId` 并重绑孙子画布 `parentId` 与 `layout.rootId`；拖拽与 `adoptAsChildren` 同步平移未固定隐藏子孙；拖拽前预先记录 `preDragBoxes` 并过滤隐藏成员；`renderCards` 在插入富文本后判断正文显隐；`CanvasExport.cardShapes` 遇到正文内插图时按元素区块分别定位文字与图片，`scene` 传 `visibility.hidden` 计算分区范围，`exportScopeIds`/`exportBoard` 过滤隐藏节点。
+3. **来源备注 UTF-8 上限对齐、中文路径、撤销清理与冲突副本保护（[src/scripts/01-rich-text.js](src/scripts/01-rich-text.js)、[src/scripts/02-data.js](src/scripts/02-data.js)、[src/scripts/03-workspace-sync.js](src/scripts/03-workspace-sync.js)、[src/scripts/08-editing-and-search.js](src/scripts/08-editing-and-search.js)、[src/scripts/10-clipboard.js](src/scripts/10-clipboard.js)）**
+   - 新增按码点不截断的 `utf8Slice` 与支持非 ASCII 相对路径的 `cleanSourceUrl`，统一 `note`（16KB UTF-8）与 `sources`（64 条、600B 标题、4096B 路径）前后端上限；允许 `richBody: null` 兼容桌面端解码；`parseMarkdownTree` 支持围栏代码块保护与 `[✓]` 待办；`deleteBoard` 清理其他画布撤销栈中的整库快照防止已删画布被还原；`saveConflictCopy` 空基线不再抛出 `JSON.parse('')` 异常；`pullShared` 跳过分区原位重命名期，对齐指令坐标做画布范围钳位（[src/scripts/04-layout.js](src/scripts/04-layout.js)）。
+4. **macOS 桌面端窗口弹窗与导出目录防护（[macos/CanvasApp.swift](macos/CanvasApp.swift)）**
+   - **为什么**：窗口经 `Cmd+W` 隐藏后若存在未保存草稿直接退出或点击同步链接菜单，表单式提示卡附着在不可见窗口上导致无法操作与退出卡死；APFS 默认大小写不敏感使 `画布数据.JSON` 绕过原有覆盖保护。
+   - **做了什么**：在 `applicationShouldTerminate`、`copySyncLink` 与 `toggleLocalAPI` 弹出 sheet 前唤起窗口前置；导出目标检查改用不区分大小写路径校验并屏蔽整个 `store.root` 本地数据目录。
+5. **MCP 回环传输、LSP 分帧、离线写入与参数校验加固（[mcp/idea-canvas-mcp.mjs](mcp/idea-canvas-mcp.mjs)）**
+   - `httpCall` 改用 `node:net` 直连 `127.0.0.1` 彻底绕开系统 `HTTP_PROXY`，支持 `ECONNRESET` 前已到达 HTTP 4xx 响应解析（如 413 体积超限）、`Content-Length` 与 chunked 完整性校验；`startStdioServer` 支持分块首包与 `Content-Type` 先行的 LSP 头并用 `.catch()` 防异步链挂死；`offlineRead`/`offlineWrite` 增加 `O_NOFOLLOW`、`fstat`、全量写入循环与 `.tmp` 异常清理；拒绝 `NaN`/`Infinity` 数值、不支持的 `board.view` 缺省与不存在的同级参考节点，`canvas_status` 无密钥锁定时正确回报状态，`canvas_get_cards` 支持 `limit <= 0`，`canvas_upsert_cards` 支持 `parentId: null` 与 `priority: 'none'`，`canvas_sync_mirror` 校验文件存在/JSON 合法并保留镜像 `themes`。
+6. **构建脚本输出权限与回归测试扩容（[tools/bundle.sh](tools/bundle.sh)、[build.sh](build.sh)、[tools/canvas-logic.test.mjs](tools/canvas-logic.test.mjs)、[mcp/idea-canvas-mcp.test.mjs](mcp/idea-canvas-mcp.test.mjs)）**
+   - 修正 `mktemp` `0600` 产物权限未重设为 `0644` 的问题（兼容 macOS BSD `chmod` 语法）；测试覆盖增至 13 条用例、153 次断言，全部通过。
+
+- **版本标记与备份**
+  - Git 提交及标签：`v2.1.2`
+  - 备份归档目录：`dist/releases/v2.1.2-b15/`
+
+---
+
 ## [2.1.1] (Build 14) - 2026-11-26
 
 集中修复前端画布、剪贴板、大纲树、导出渲染与 MCP 服务的 13 处边界缺陷，并补充核心逻辑回归测试。

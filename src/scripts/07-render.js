@@ -538,6 +538,33 @@ function foldSide(node, children, byId, lanes, mode) {
   return Object.keys(counts).reduce((best, side) => counts[side] > counts[best] ? side : best);
 }
 
+function createCardView(id) {
+  const element = document.createElement('article');
+  element.className = 'card';
+  element.tabIndex = 0;
+  element.dataset.card = id;
+  element.innerHTML = '<div class="card-copy"><div class="card-type"></div><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><div class="card-meta" hidden></div></div>' +
+    '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="top" aria-label="从上方连线" title="拖动连线"></button>' +
+    '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="right" aria-label="从右侧连线" title="拖动连线"></button>' +
+    '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="bottom" aria-label="从下方连线" title="拖动连线"></button>' +
+    '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="left" aria-label="从左侧连线" title="拖动连线"></button>' +
+    '<button type="button" class="card-fold" data-card-fold hidden></button>' +
+    '<button type="button" tabindex="-1" class="card-size" data-handle="resize" aria-label="调整卡片宽度" title="拖动调整换行宽度">' + icon('resize') + '</button>';
+  cards.append(element);
+  cardSizes.observe(element);
+  const view = {
+    element,
+    type: element.querySelector('.card-type'),
+    title: element.querySelector('.card-title'),
+    cover: element.querySelector('.card-cover'),
+    body: element.querySelector('.card-body'),
+    meta: element.querySelector('.card-meta'),
+    fold: element.querySelector('.card-fold'),
+  };
+  cardIndex.set(id, view);
+  return view;
+}
+
 function renderCards(nodes = board().nodes) {
   const { settings } = board();
   const statusBy = new Map(settings.statuses.map(status => [status.id, status]));
@@ -556,28 +583,7 @@ function renderCards(nodes = board().nodes) {
   }
   for (const node of drawn.values()) {
     if (!cardIndex.has(node.id)) {
-      const element = document.createElement('article');
-      element.className = 'card';
-      element.tabIndex = 0;
-      element.dataset.card = node.id;
-      element.innerHTML = '<div class="card-copy"><div class="card-type"></div><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><div class="card-meta" hidden></div></div>' +
-        '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="top" aria-label="从上方连线" title="拖动连线"></button>' +
-        '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="right" aria-label="从右侧连线" title="拖动连线"></button>' +
-        '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="bottom" aria-label="从下方连线" title="拖动连线"></button>' +
-        '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="left" aria-label="从左侧连线" title="拖动连线"></button>' +
-        '<button type="button" class="card-fold" data-card-fold hidden></button>' +
-        '<button type="button" tabindex="-1" class="card-size" data-handle="resize" aria-label="调整卡片宽度" title="拖动调整换行宽度">' + icon('resize') + '</button>';
-      cards.append(element);
-      cardSizes.observe(element);
-      cardIndex.set(node.id, {
-        element,
-        type: element.querySelector('.card-type'),
-        title: element.querySelector('.card-title'),
-        cover: element.querySelector('.card-cover'),
-        body: element.querySelector('.card-body'),
-        meta: element.querySelector('.card-meta'),
-        fold: element.querySelector('.card-fold'),
-      });
+      createCardView(node.id);
     }
     const view = cardIndex.get(node.id);
     const content = cardProfile(node);
@@ -595,7 +601,6 @@ function renderCards(nodes = board().nodes) {
     view.type.hidden = profile === 'empty' || (node.tone === 'idea' && profile !== 'title');
     view.title.hidden = !node.title.trim() && (profile === 'note' || profile === 'image');
     view.title.textContent = profile === 'empty' ? '待补充' : titleOf(node);
-    view.body.hidden = !node.body.trim();
     const contentChanged = view.plain !== node.body || view.rich !== node.richBody;
     if (contentChanged) {
       view.plain = node.body;
@@ -615,6 +620,7 @@ function renderCards(nodes = board().nodes) {
         view.body.replaceChildren();
       }
     }
+    view.body.hidden = !node.body.trim() && !view.body.querySelector('img');
     const prevMetaKey = view.metaKey;
     decorateCard(view, node, settings, statusBy, tagBy);
     const children = hierarchy.children.get(node.id) || [];

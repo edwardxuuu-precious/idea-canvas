@@ -446,7 +446,7 @@ function adoptShared(snapshot) {
 }
 
 async function pullShared() {
-  if (polling || loadFailure || unresolved || gesture || layoutDraft || inlineEdit || Date.now() < retryAt) return;
+  if (polling || loadFailure || unresolved || gesture || layoutDraft || inlineEdit || document.querySelector('.canvas-frame-input') || Date.now() < retryAt) return;
   if (writingToDisk) return;
   if (dirty()) {
     if (!saveTimer) await saveToDisk();
@@ -457,7 +457,7 @@ async function pullShared() {
   try {
     const since = revision;
     const current = await readShared(since);
-    if (writingToDisk || dirty() || modalOpen() || gesture || layoutDraft || inlineEdit || unresolved || revision !== since) return;
+    if (writingToDisk || dirty() || modalOpen() || gesture || layoutDraft || inlineEdit || document.querySelector('.canvas-frame-input') || unresolved || revision !== since) return;
     if (current && current.revision !== since) adoptShared(current);
     statusSaved();
   } catch (error) {
@@ -473,7 +473,7 @@ async function saveConflictCopy() {
   controls['sync-copy'].disabled = true;
   try {
     const current = await readShared(null);
-    const last = JSON.parse(lastSyncedContent);
+    const last = lastSyncedContent ? JSON.parse(lastSyncedContent) : { boards: [], themes: [] };
     const prior = new Map(last.boards.map(item => [item.id, JSON.stringify(item)]));
     const pending = JSON.parse(contentOf(workspace));
     const local = pending.boards.filter(item => JSON.stringify(item) !== prior.get(item.id));

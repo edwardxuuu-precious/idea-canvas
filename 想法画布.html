@@ -1706,6 +1706,22 @@ const imageDataLimit = 800_000;
 const imageType = /^image\/(png|jpeg|webp|gif)$/i;
 const imageData = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i;
 
+const utf8Encoder = new TextEncoder();
+
+function utf8Slice(value, maxBytes) {
+  const text = typeof value === 'string' ? value : String(value || '');
+  if (!text || utf8Encoder.encode(text).length <= maxBytes) return text;
+  let bytes = 0;
+  let out = '';
+  for (const char of text) {
+    const len = utf8Encoder.encode(char).length;
+    if (bytes + len > maxBytes) break;
+    bytes += len;
+    out += char;
+  }
+  return out;
+}
+
 function safeExternalUrl(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -1716,6 +1732,17 @@ function safeExternalUrl(value) {
   } catch {
     return null;
   }
+}
+
+function cleanSourceUrl(rawUrl) {
+  const trimmed = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+  if (!trimmed || utf8Encoder.encode(trimmed).length > 4096) return '';
+  const ext = safeExternalUrl(trimmed);
+  if (ext) return utf8Encoder.encode(ext).length <= 4096 ? ext : '';
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/[\u0000-\u001f\u007f]/.test(trimmed)) {
+    return trimmed;
+  }
+  return '';
 }
 
 function richFragment(html) {
@@ -2010,17 +2037,11 @@ const CanvasData = (() => {
     const items = [];
     for (const entry of value) {
       if (!entry || typeof entry !== 'object') continue;
-      const label = asText(entry.label, 160);
+      const label = utf8Slice(asText(entry.label, 160), 600);
       if (!label) continue;
-      const rawUrl = typeof entry.url === 'string' ? entry.url.trim() : '';
-      let url = '';
-      if (rawUrl) {
-        const ext = safeExternalUrl(rawUrl);
-        if (ext) url = ext;
-        else if (/^(?:\.\.?\/)?[A-Za-z0-9._/-]+(?:#[A-Za-z0-9._-]+)?$/.test(rawUrl) && rawUrl.length <= 2048) url = rawUrl;
-      }
+      const url = cleanSourceUrl(entry.url);
       items.push(url ? { label, url } : { label });
-      if (items.length >= 40) break;
+      if (items.length >= 64) break;
     }
     return items;
   }
@@ -2145,12 +2166,12 @@ const CanvasData = (() => {
       requireValue(typeof nodeTone === 'string' && Object.hasOwn(tone, nodeTone) && typeof title === 'string' && typeof body === 'string', '卡片类型或文字内容无效。');
       nodeIds.add(id);
       const result = { id, x, y, w, h, tone: nodeTone, title, body };
-      if (richBody !== undefined) {
+      if (richBody !== undefined && richBody !== null) {
         requireValue(typeof richBody === 'string', '卡片富文本内容无效。');
         const clean = richContent(richBody);
         if (clean.html) Object.assign(result, { body: clean.text, richBody: clean.html });
       }
-      if (typeof node.note === 'string' && node.note.trim()) result.note = [...node.note.trim()].slice(0, 2000).join('');
+      if (typeof node.note === 'string' && node.note.trim()) result.note = utf8Slice(node.note.trim(), 16_000);
       const sources = parseSources(node.sources);
       if (sources.length) result.sources = sources;
       if (node.style) result.style = styles(node.style, 'card');
@@ -2683,7 +2704,7 @@ function adoptShared(snapshot) {
 }
 
 async function pullShared() {
-  if (polling || loadFailure || unresolved || gesture || layoutDraft || inlineEdit || Date.now() < retryAt) return;
+  if (polling || loadFailure || unresolved || gesture || layoutDraft || inlineEdit || document.querySelector('.canvas-frame-input') || Date.now() < retryAt) return;
   if (writingToDisk) return;
   if (dirty()) {
     if (!saveTimer) await saveToDisk();
@@ -2694,7 +2715,7 @@ async function pullShared() {
   try {
     const since = revision;
     const current = await readShared(since);
-    if (writingToDisk || dirty() || modalOpen() || gesture || layoutDraft || inlineEdit || unresolved || revision !== since) return;
+    if (writingToDisk || dirty() || modalOpen() || gesture || layoutDraft || inlineEdit || document.querySelector('.canvas-frame-input') || unresolved || revision !== since) return;
     if (current && current.revision !== since) adoptShared(current);
     statusSaved();
   } catch (error) {
@@ -2710,7 +2731,7 @@ async function saveConflictCopy() {
   controls['sync-copy'].disabled = true;
   try {
     const current = await readShared(null);
-    const last = JSON.parse(lastSyncedContent);
+    const last = lastSyncedContent ? JSON.parse(lastSyncedContent) : { boards: [], themes: [] };
     const prior = new Map(last.boards.map(item => [item.id, JSON.stringify(item)]));
     const pending = JSON.parse(contentOf(workspace));
     const local = pending.boards.filter(item => JSON.stringify(item) !== prior.get(item.id));
@@ -4058,7 +4079,11 @@ function alignSelection(command) {
   const result = CanvasLayout.align(nodes, command);
   if (nodes.every(node => result.get(node.id).x === node.x && result.get(node.id).y === node.y)) return;
   const before = capturePositions();
-  applyChange(() => { for (const [id, position] of result) Object.assign(nodeBy(id), position); });
+  applyChange(() => {
+    for (const [id, position] of result) {
+      Object.assign(nodeBy(id), { x: coordinate(position.x), y: coordinate(position.y) });
+    }
+  });
   animatePositions(before);
   focusCanvas();
 }
@@ -5003,6 +5028,7 @@ const CanvasInspector = (() => {
       if (event.target.closest('[data-inspector-close]')) close();
     });
     panel.addEventListener('keydown', event => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') return;
       event.stopPropagation();
       if (event.key === 'Escape') {
         close();
@@ -5283,6 +5309,7 @@ const CanvasViews = (() => {
 
   function refresh() {
     const current = board();
+    if (focused && focused.boardId === current.id && !nodeBy(focused.id)) focused = null;
     const active = isFocused();
     const strip = $('#view-focus-strip');
     strip.hidden = !active;
@@ -5609,6 +5636,12 @@ const CanvasViews = (() => {
     const roots = ids.filter(id => !ids.includes(tree.parent.get(id)));
     if (roots.every(id => tree.parent.get(id) === targetId)) return false;
     const before = capturePositions(dropped);
+    const preDragCoords = new Map(ids.map(id => {
+      const n = nodeBy(id);
+      return n ? [id, { x: n.x, y: n.y }] : null;
+    }).filter(Boolean));
+    const foldedMovedIds = ids.filter(id => current.settings.folded.includes(id));
+    const hiddenMoved = foldedMovedIds.length ? CanvasLayout.foldedDescendants(tree, foldedMovedIds) : new Set();
     const oldParents = roots.map(id => tree.parent.get(id)).filter(Boolean);
     applyChange(() => {
       for (const [id, position] of dropped) Object.assign(nodeBy(id), { x: position.x, y: position.y });
@@ -5617,17 +5650,37 @@ const CanvasViews = (() => {
       [...siblings, ...roots].forEach((id, index) => { const node = nodeBy(id); if (node) node.order = index; });
       if (CanvasLayout.isTreeMode(current.settings.layout.mode)) {
         relayoutAround(current, [targetId, ...oldParents]);
-        return;
+      } else {
+        const group = ids.map(nodeBy).filter(Boolean);
+        const box = boundsOf(group);
+        const anchor = cardRect(target);
+        const placedSiblings = siblings.filter(id => !visibility.hidden.has(id)).map(nodeBy).filter(Boolean);
+        const below = boundsOf(placedSiblings);
+        const left = below ? below.left : anchor.x + anchor.w + 76;
+        const top = below ? below.bottom + 24 : anchor.y + anchor.h / 2 - box.h / 2;
+        for (const node of group) {
+          Object.assign(node, { x: coordinate(node.x + left - box.left), y: coordinate(node.y + top - box.top) });
+        }
       }
-      const group = ids.map(nodeBy).filter(Boolean);
-      const box = boundsOf(group);
-      const anchor = cardRect(target);
-      const placedSiblings = siblings.filter(id => !visibility.hidden.has(id)).map(nodeBy).filter(Boolean);
-      const below = boundsOf(placedSiblings);
-      const left = below ? below.left : anchor.x + anchor.w + 76;
-      const top = below ? below.bottom + 24 : anchor.y + anchor.h / 2 - box.h / 2;
-      for (const node of group) {
-        Object.assign(node, { x: coordinate(node.x + left - box.left), y: coordinate(node.y + top - box.top) });
+      if (hiddenMoved.size) {
+        const movedHidden = new Set();
+        for (const id of foldedMovedIds) {
+          const orig = preDragCoords.get(id);
+          const nowNode = nodeBy(id);
+          if (!orig || !nowNode) continue;
+          const dx = nowNode.x - orig.x;
+          const dy = nowNode.y - orig.y;
+          if (!dx && !dy) continue;
+          for (const subId of CanvasLayout.subtree(tree, id)) {
+            if (subId === id || !hiddenMoved.has(subId) || preDragCoords.has(subId) || movedHidden.has(subId)) continue;
+            movedHidden.add(subId);
+            const subNode = nodeBy(subId);
+            if (subNode && !subNode.pinned) {
+              subNode.x = coordinate(subNode.x + dx);
+              subNode.y = coordinate(subNode.y + dy);
+            }
+          }
+        }
       }
     });
     animatePositions(before);
@@ -5753,12 +5806,16 @@ const CanvasViews = (() => {
       const next = input.value.trim();
       input.remove();
       view.handle.hidden = false;
-      if (saveName && next && next !== frame.name) {
-        applyChange(() => { frame.name = next; });
+      if (saveName && next) {
+        const current = board().settings.frames.find(item => item.id === id);
+        if (current && next !== current.name) {
+          applyChange(() => { current.name = next; });
+        }
       }
     };
     input.addEventListener('keydown', event => {
       if (event.isComposing || event.keyCode === 229) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { finish(true); return; }
       event.stopPropagation();
       if (event.key === 'Enter') { event.preventDefault(); finish(true); }
       else if (event.key === 'Escape') { event.preventDefault(); finish(false); }
@@ -5791,11 +5848,11 @@ const CanvasViews = (() => {
     for (const [id, view] of frameViews) view.element.classList.toggle('is-drop-target', targets.has(id));
   }
 
-  function syncMembershipAfterDrag(movedNodes) {
+  function syncMembershipAfterDrag(movedNodes, preDragBoxes = null) {
     const frames = board().settings.frames;
     if (!frames.length || !movedNodes.length) return [];
     const changes = [];
-    const frameBoxes = new Map(frames.map(frame => [frame.id, frameRect(frame)]));
+    const frameBoxes = preDragBoxes || new Map(frames.map(frame => [frame.id, frameRect(frame)]));
     for (const node of movedNodes) {
       const rect = cardRect(node);
       const center = { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
@@ -6550,6 +6607,33 @@ function foldSide(node, children, byId, lanes, mode) {
   return Object.keys(counts).reduce((best, side) => counts[side] > counts[best] ? side : best);
 }
 
+function createCardView(id) {
+  const element = document.createElement('article');
+  element.className = 'card';
+  element.tabIndex = 0;
+  element.dataset.card = id;
+  element.innerHTML = '<div class="card-copy"><div class="card-type"></div><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><div class="card-meta" hidden></div></div>' +
+    '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="top" aria-label="从上方连线" title="拖动连线"></button>' +
+    '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="right" aria-label="从右侧连线" title="拖动连线"></button>' +
+    '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="bottom" aria-label="从下方连线" title="拖动连线"></button>' +
+    '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="left" aria-label="从左侧连线" title="拖动连线"></button>' +
+    '<button type="button" class="card-fold" data-card-fold hidden></button>' +
+    '<button type="button" tabindex="-1" class="card-size" data-handle="resize" aria-label="调整卡片宽度" title="拖动调整换行宽度">' + icon('resize') + '</button>';
+  cards.append(element);
+  cardSizes.observe(element);
+  const view = {
+    element,
+    type: element.querySelector('.card-type'),
+    title: element.querySelector('.card-title'),
+    cover: element.querySelector('.card-cover'),
+    body: element.querySelector('.card-body'),
+    meta: element.querySelector('.card-meta'),
+    fold: element.querySelector('.card-fold'),
+  };
+  cardIndex.set(id, view);
+  return view;
+}
+
 function renderCards(nodes = board().nodes) {
   const { settings } = board();
   const statusBy = new Map(settings.statuses.map(status => [status.id, status]));
@@ -6568,28 +6652,7 @@ function renderCards(nodes = board().nodes) {
   }
   for (const node of drawn.values()) {
     if (!cardIndex.has(node.id)) {
-      const element = document.createElement('article');
-      element.className = 'card';
-      element.tabIndex = 0;
-      element.dataset.card = node.id;
-      element.innerHTML = '<div class="card-copy"><div class="card-type"></div><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><div class="card-meta" hidden></div></div>' +
-        '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="top" aria-label="从上方连线" title="拖动连线"></button>' +
-        '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="right" aria-label="从右侧连线" title="拖动连线"></button>' +
-        '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="bottom" aria-label="从下方连线" title="拖动连线"></button>' +
-        '<button type="button" tabindex="-1" class="card-port" data-handle="link" data-port-side="left" aria-label="从左侧连线" title="拖动连线"></button>' +
-        '<button type="button" class="card-fold" data-card-fold hidden></button>' +
-        '<button type="button" tabindex="-1" class="card-size" data-handle="resize" aria-label="调整卡片宽度" title="拖动调整换行宽度">' + icon('resize') + '</button>';
-      cards.append(element);
-      cardSizes.observe(element);
-      cardIndex.set(node.id, {
-        element,
-        type: element.querySelector('.card-type'),
-        title: element.querySelector('.card-title'),
-        cover: element.querySelector('.card-cover'),
-        body: element.querySelector('.card-body'),
-        meta: element.querySelector('.card-meta'),
-        fold: element.querySelector('.card-fold'),
-      });
+      createCardView(node.id);
     }
     const view = cardIndex.get(node.id);
     const content = cardProfile(node);
@@ -6607,7 +6670,6 @@ function renderCards(nodes = board().nodes) {
     view.type.hidden = profile === 'empty' || (node.tone === 'idea' && profile !== 'title');
     view.title.hidden = !node.title.trim() && (profile === 'note' || profile === 'image');
     view.title.textContent = profile === 'empty' ? '待补充' : titleOf(node);
-    view.body.hidden = !node.body.trim();
     const contentChanged = view.plain !== node.body || view.rich !== node.richBody;
     if (contentChanged) {
       view.plain = node.body;
@@ -6627,6 +6689,7 @@ function renderCards(nodes = board().nodes) {
         view.body.replaceChildren();
       }
     }
+    view.body.hidden = !node.body.trim() && !view.body.querySelector('img');
     const prevMetaKey = view.metaKey;
     decorateCard(view, node, settings, statusBy, tagBy);
     const children = hierarchy.children.get(node.id) || [];
@@ -7302,20 +7365,22 @@ function readNoteSourcesFromForm() {
   const items = [];
   for (const row of noteSourcesRows.children) {
     const [labelInput, urlInput] = row.querySelectorAll('input');
-    const label = labelInput.value.trim();
-    const rawUrl = urlInput.value.trim();
+    const label = utf8Slice([...labelInput.value.trim()].slice(0, 160).join(''), 600);
     if (!label) continue;
-    const ext = rawUrl ? safeExternalUrl(rawUrl) : null;
-    const url = ext || (/^(?:\.\.?\/)?[A-Za-z0-9._/-]+(?:#[A-Za-z0-9._-]+)?$/.test(rawUrl) ? rawUrl : '');
+    const url = cleanSourceUrl(urlInput.value);
     items.push(url ? { label, url } : { label });
+    if (items.length >= 64) break;
   }
   return items;
 }
 
 function openNote(node, isNew = false, parent = null) {
+  if (inlineEdit) finishInline({ keepFocus: true });
   dismissIdleTip();
   closePopover();
+  closeSelectionSubPopovers();
   closeSourcePopover();
+  closeContextMenu();
   modalNote = { node, isNew, parent, tone: node.tone, checkpointed: false, bodyChanged: false, imageJob: null };
   $('#note-heading').textContent = isNew ? (parent ? '新建分支' : '新建卡片') : '编辑卡片';
   noteTitle.value = node.title;
@@ -7343,7 +7408,7 @@ function syncNote() {
   const { text: body, html: richBody } = bodyChanged
     ? richContent(noteBody.innerHTML)
     : { text: node.body, html: node.richBody };
-  const note = noteExtra.value.trim();
+  const note = utf8Slice(noteExtra.value.trim(), 16_000);
   const sources = readNoteSourcesFromForm();
   modalNote.bodyChanged = false;
   noteBody.dataset.empty = String(!richBody && !body.trim());
@@ -7364,7 +7429,10 @@ function syncNote() {
   else delete node.sources;
   if (isNew) {
     board().nodes.push(node);
-    if (parent) addEdge(parent.id, node.id, 'branch');
+    if (parent && nodeBy(parent.id)) {
+      addEdge(parent.id, node.id, 'branch');
+      board().settings.folded = board().settings.folded.filter(id => id !== parent.id);
+    }
     modalNote.isNew = false;
     selection = { kind: 'cards', ids: new Set([node.id]) };
   }
@@ -7715,7 +7783,10 @@ function syncInline() {
   else delete node.richBody;
   if (isNew) {
     board().nodes.push(node);
-    if (parent) addEdge(parent.id, node.id, 'branch');
+    if (parent && nodeBy(parent.id)) {
+      addEdge(parent.id, node.id, 'branch');
+      board().settings.folded = board().settings.folded.filter(id => id !== parent.id);
+    }
     inlineEdit.isNew = false;
     selection = { kind: 'cards', ids: new Set([node.id]) };
   }
@@ -7738,6 +7809,9 @@ function finishInline(options = {}) {
   const view = cardIndex.get(active.node.id);
   if (view) view.size = null;
   if (active.isNew) {
+    cardSizes.unobserve(active.element);
+    active.element.remove();
+    cardIndex.delete(active.node.id);
     render();
     return;
   }
@@ -7751,6 +7825,7 @@ function cancelInline() {
   if (!active) return;
   if (active.isNew) {
     inlineEdit = null;
+    cardSizes.unobserve(active.element);
     active.element.remove();
     cardIndex.delete(active.node.id);
     render();
@@ -7760,9 +7835,9 @@ function cancelInline() {
   finishInline();
 }
 
-function openInline(node, { isNew = false, parent = null, focusBody = false } = {}) {
+function openInline(node, { isNew = false, parent = null, focusBody = false, triggerKey = null } = {}) {
   if (inlineEdit?.node.id === node.id) {
-    (focusBody ? inlineEdit.bodyEditor : inlineEdit.titleInput).focus();
+    (focusBody ? inlineEdit.bodyEditor : inlineEdit.titleInput).focus({ preventScroll: true });
     return;
   }
   if (inlineEdit) finishInline({ keepFocus: true });
@@ -7772,28 +7847,13 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
   closeSourcePopover();
   closeContextMenu();
   if (isNew) {
-    if (!board().nodes.includes(node)) {
-      const element = document.createElement('article');
-      element.className = 'card';
-      element.tabIndex = 0;
-      element.dataset.card = node.id;
-      element.dataset.tone = node.tone;
-      element.dataset.profile = 'note';
-      element.innerHTML = '<div class="card-copy"><div class="card-type"></div><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><div class="card-meta" hidden></div></div>';
-      const typeEl = element.querySelector('.card-type');
-      typeEl.innerHTML = icon(node.tone) + '<span>' + CanvasData.tone[node.tone].label + '</span>';
-      typeEl.hidden = node.tone === 'idea';
-      cards.append(element);
-      placeCard(element, node);
-      cardIndex.set(node.id, {
-        element,
-        type: element.querySelector('.card-type'),
-        title: element.querySelector('.card-title'),
-        cover: element.querySelector('.card-cover'),
-        body: element.querySelector('.card-body'),
-        meta: element.querySelector('.card-meta'),
-        fold: document.createElement('button'),
-      });
+    if (!board().nodes.includes(node) && !cardIndex.has(node.id)) {
+      const createdView = createCardView(node.id);
+      createdView.element.dataset.tone = node.tone;
+      createdView.element.dataset.profile = 'note';
+      createdView.type.innerHTML = icon(node.tone) + '<span>' + CanvasData.tone[node.tone].label + '</span>';
+      createdView.type.hidden = node.tone === 'idea';
+      placeCard(createdView.element, node);
     }
   } else {
     selection = { kind: 'cards', ids: new Set([node.id]) };
@@ -7903,16 +7963,48 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
   };
   renderSelection();
 
-  titleInput.addEventListener('input', e => { if (!e.isComposing) syncInline(); });
+  let suppressKey = triggerKey ? triggerKey.toLowerCase() : null;
+  const initialTitleValue = node.title;
+  let clearSuppress = () => { suppressKey = null; };
+  if (suppressKey) {
+    let timer = 0;
+    clearSuppress = () => {
+      suppressKey = null;
+      clearTimeout(timer);
+      window.removeEventListener('keyup', clearSuppress, true);
+    };
+    window.addEventListener('keyup', clearSuppress, true);
+    timer = setTimeout(clearSuppress, 300);
+    titleInput.addEventListener('beforeinput', e => {
+      if (suppressKey && e.inputType === 'insertText' && e.data?.toLowerCase() === suppressKey) {
+        clearSuppress();
+        e.preventDefault();
+      }
+    });
+  }
+
+  titleInput.addEventListener('input', e => {
+    if (suppressKey && (titleInput.value.toLowerCase() === suppressKey ||
+        titleInput.value.toLowerCase() === (initialTitleValue + suppressKey).toLowerCase())) {
+      clearSuppress();
+      titleInput.value = initialTitleValue;
+      if (!isNew) titleInput.select();
+      return;
+    }
+    if (!e.isComposing) syncInline();
+  });
   titleInput.addEventListener('compositionend', syncInline);
   titleInput.addEventListener('keydown', e => {
+    if (suppressKey && !e.repeat) clearSuppress();
     if (e.isComposing || e.keyCode === 229) return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') return;
     e.stopPropagation();
     if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault();
-      if (!titleInput.value.trim() && !bodyEditor.textContent.trim() && isNew) return;
+      if (inlineEdit?.isNew && !titleInput.value.trim() && !bodyEditor.textContent.trim() && !bodyEditor.querySelector('img')) return;
       const currentNode = node;
       finishInline({ keepFocus: true });
+      if (!nodeBy(currentNode.id)) return;
       openInline(blankCard(null, currentNode), { isNew: true, parent: currentNode });
     } else if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
@@ -7939,6 +8031,7 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
   bodyEditor.addEventListener('click', e => handleChecklistClickInEditor(e, bodyEditor, editInlineBody));
   bodyEditor.addEventListener('keydown', e => {
     if (e.isComposing || e.keyCode === 229) return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') return;
     e.stopPropagation();
     if (handleChecklistEnter(e, bodyEditor, editInlineBody)) return;
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -7949,8 +8042,10 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
       finishInline();
     } else if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault();
+      if (inlineEdit?.isNew && !titleInput.value.trim() && !bodyEditor.textContent.trim() && !bodyEditor.querySelector('img')) return;
       const currentNode = node;
       finishInline({ keepFocus: true });
+      if (!nodeBy(currentNode.id)) return;
       openInline(blankCard(null, currentNode), { isNew: true, parent: currentNode });
     }
   });
@@ -7979,14 +8074,11 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
     }
   });
 
-  requestAnimationFrame(() => {
-    if (inlineEdit?.node.id !== node.id) return;
-    if (focusBody) bodyEditor.focus();
-    else {
-      titleInput.focus();
-      if (!isNew) titleInput.select();
-    }
-  });
+  if (focusBody) bodyEditor.focus({ preventScroll: true });
+  else {
+    titleInput.focus({ preventScroll: true });
+    if (!isNew) titleInput.select();
+  }
 }
 
 function addBranch(sibling = false) {
@@ -7997,11 +8089,11 @@ function addBranch(sibling = false) {
   openInline(blankCard(null, parent, sibling ? node : null), { isNew: true, parent });
 }
 
-function editSelection() {
+function editSelection({ triggerKey = null } = {}) {
   const note = chosenCard();
   const edge = chosenEdge();
-  if (note) openInline(note);
-  if (edge) openText('edge', edge.label, edge.id);
+  if (note) openInline(note, { triggerKey });
+  if (edge) openText('edge', edge.label, edge.id, triggerKey);
 }
 
 function duplicateSelected() {
@@ -8050,7 +8142,7 @@ function removeSelected() {
   focusCanvas();
 }
 
-function openText(kind, initial = '', id = null) {
+function openText(kind, initial = '', id = null, triggerKey = null) {
   closePopover();
   modalText = { kind, id };
   const wording = {
@@ -8066,6 +8158,29 @@ function openText(kind, initial = '', id = null) {
   textField.value = initial;
   textDialog.showModal();
   textField.select();
+  if (triggerKey) {
+    const target = triggerKey.toLowerCase();
+    let timer = 0;
+    const onBeforeInput = e => {
+      if (e.inputType === 'insertText' && e.data?.toLowerCase() === target) {
+        cleanup();
+        e.preventDefault();
+      }
+    };
+    const onKeyDown = e => { if (!e.repeat) cleanup(); };
+    const cleanup = () => {
+      clearTimeout(timer);
+      textField.removeEventListener('beforeinput', onBeforeInput);
+      textField.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', cleanup, true);
+      textDialog.removeEventListener('close', cleanup);
+    };
+    textField.addEventListener('beforeinput', onBeforeInput);
+    textField.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', cleanup, true);
+    textDialog.addEventListener('close', cleanup);
+    timer = setTimeout(cleanup, 300);
+  }
 }
 
 function switchBoard(id) {
@@ -8134,6 +8249,10 @@ function deleteBoard() {
     }
   }
   history.delete(deletedId);
+  for (const stack of history.values()) {
+    stack.past = stack.past.filter(entry => !entry.workspaceBoards);
+    stack.future = stack.future.filter(entry => !entry.workspaceBoards);
+  }
   switchBoard(workspace.boards[Math.min(index, workspace.boards.length - 1)].id);
   toast('已删除画布');
 }
@@ -8485,8 +8604,10 @@ async function download(kind) {
 
 function exportScopeIds() {
   const ids = noteIds();
-  if (ids.length !== 1) return ids.length ? ids : null;
-  return CanvasLayout.subtree(hierarchy, ids[0]).filter(id => !visibility.hidden.has(id));
+  if (!ids.length) return null;
+  if (ids.length === 1) return CanvasLayout.subtree(hierarchy, ids[0]).filter(id => !visibility.hidden.has(id));
+  const visible = ids.filter(id => !visibility.hidden.has(id) && nodeBy(id));
+  return visible.length ? visible : null;
 }
 
 function boardToMarkdown() {
@@ -8499,7 +8620,8 @@ async function exportBoard(kind) {
   closePopover();
   closeSelectionSubPopovers();
   const ids = exportScopeIds();
-  const scope = ids ? '-' + fileSafe(titleOf(nodeBy(noteIds()[0]))) : '';
+  const firstNode = ids?.map(nodeBy).find(Boolean);
+  const scope = firstNode ? '-' + fileSafe(titleOf(firstNode)) : '';
   try {
     let contents = '';
     if (kind === 'md') {
@@ -8661,13 +8783,60 @@ const CanvasExport = (() => {
     const imageBox = image && boxIn(image, card);
     if (imageBox?.w && imageBox.h) shapes.push({ type: 'image', x: x + imageBox.x, y: y + imageBox.y, w: imageBox.w, h: imageBox.h, r: 8, src: image.src });
     const bodyBox = !view.body.hidden && boxIn(view.body, card);
-    const bodyText = bodyBox ? exportBodyText(view.body) : '';
-    if (bodyText) {
-      const font = fontOf(view.body);
-      const bottomPad = parseFloat(getComputedStyle(card.querySelector('.card-copy')).paddingBottom) || 12;
-      const room = Math.min(bodyBox.h, h - bodyBox.y - bottomPad);
-      const maxLines = Math.floor(room / font.lineHeight + 0.15);
-      if (maxLines > 0) shapes.push(textShape(x, y, bodyBox, view.body, bodyText, maxLines, font));
+    if (bodyBox) {
+      const hasBodyImages = view.body.querySelectorAll('img').length > 0;
+      if (!hasBodyImages) {
+        const bodyText = exportBodyText(view.body);
+        if (bodyText) {
+          const font = fontOf(view.body);
+          const bottomPad = parseFloat(getComputedStyle(card.querySelector('.card-copy')).paddingBottom) || 12;
+          const room = Math.min(bodyBox.h, h - bodyBox.y - bottomPad);
+          const maxLines = bodyBox.h > 0 ? Math.max(1, Math.floor(room / font.lineHeight + 0.25)) : 0;
+          if (maxLines > 0) shapes.push(textShape(x, y, bodyBox, view.body, bodyText, maxLines, font));
+        }
+      } else {
+        const bottomPad = parseFloat(getComputedStyle(card.querySelector('.card-copy')).paddingBottom) || 12;
+        const maxBottom = h - bottomPad;
+        const cardRectBox = card.getBoundingClientRect();
+        const domScale = cardRectBox.width && card.offsetWidth ? cardRectBox.width / card.offsetWidth : 1;
+        const emitBodyNode = item => {
+          if (item.nodeType === Node.TEXT_NODE) {
+            const text = item.textContent.trim();
+            if (!text) return;
+            const range = document.createRange();
+            range.selectNodeContents(item);
+            const r = range.getBoundingClientRect();
+            const relBox = {
+              x: (r.left - cardRectBox.left) / domScale,
+              y: (r.top - cardRectBox.top) / domScale,
+              w: Math.max(20, r.width / domScale),
+              h: Math.max(14, r.height / domScale),
+            };
+            const font = fontOf(item.parentElement || view.body);
+            const maxLines = Math.max(1, Math.floor(Math.min(relBox.h, maxBottom - relBox.y) / font.lineHeight + 0.25));
+            if (relBox.y < maxBottom) shapes.push(textShape(x, y, relBox, view.body, text, maxLines, font));
+            return;
+          }
+          if (item.nodeType !== Node.ELEMENT_NODE) return;
+          if (item.tagName === 'IMG') {
+            const bImgBox = boxIn(item, card);
+            if (bImgBox?.w && bImgBox.h) shapes.push({ type: 'image', x: x + bImgBox.x, y: y + bImgBox.y, w: bImgBox.w, h: bImgBox.h, r: 7, src: item.src });
+            return;
+          }
+          if (item.querySelector('img')) {
+            for (const sub of item.childNodes) emitBodyNode(sub);
+            return;
+          }
+          const subBox = boxIn(item, card);
+          const subText = exportBodyText(item);
+          if (subBox && subText && subBox.y < maxBottom) {
+            const font = fontOf(item);
+            const maxLines = Math.max(1, Math.floor(Math.min(subBox.h, maxBottom - subBox.y) / font.lineHeight + 0.25));
+            shapes.push(textShape(x, y, subBox, item, subText, maxLines, font));
+          }
+        };
+        for (const child of view.body.childNodes) emitBodyNode(child);
+      }
     }
     if (view.meta.hidden) return;
     for (const chip of view.meta.children) {
@@ -8704,7 +8873,7 @@ const CanvasExport = (() => {
       const memberBox = wanted && boundsOf(members.map(id => rects.get(id)));
       const box = memberBox
         ? { x: memberBox.left - 18, y: memberBox.top - 45, w: memberBox.w + 36, h: memberBox.h + 64 }
-        : CanvasViews.frameRect(frame);
+        : CanvasViews.frameRect(frame, null, visibility.hidden);
       if (!box) continue;
       const font = { css: `620 12.5px ${family}`, size: 12.5, weight: '620', family, lineHeight: 26, color: ink };
       measure.font = font.css;
@@ -8987,29 +9156,40 @@ async function copySelectionAsMarkdown() {
 }
 
 function parseMarkdownTree(raw) {
-  const rawLines = raw.replace(/\r\n?/g, '\n').split('\n').filter(line => line.trim());
-  if (rawLines.length < 2) return null;
+  const rawLines = raw.replace(/\r\n?/g, '\n').split('\n');
   const items = [];
   let minHeading = 7;
   let hasStructured = false;
+  let inFence = false;
   for (const rawLine of rawLines) {
-    const headingMatch = rawLine.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      hasStructured = true;
-      const level = headingMatch[1].length;
-      minHeading = Math.min(minHeading, level);
-      items.push({ kind: 'heading', level, text: headingMatch[2].trim() });
+    const trimmed = rawLine.trim();
+    if (/^```/.test(trimmed)) {
+      inFence = !inFence;
+      if (items.length) {
+        items[items.length - 1].notes = (items[items.length - 1].notes || '') + (items[items.length - 1].notes ? '\n' : '') + rawLine;
+      }
       continue;
     }
-    const listMatch = rawLine.match(/^([ \t]*)(?:[-*+]|\d+\.)\s+(.+)$/);
-    if (listMatch) {
-      hasStructured = true;
-      const indent = listMatch[1].replace(/\t/g, '  ').length;
-      items.push({ kind: 'list', indent, text: listMatch[2].trim() });
-      continue;
+    if (!inFence && !trimmed) continue;
+    if (!inFence) {
+      const headingMatch = rawLine.match(/^(#{1,6})\s+(.+)$/);
+      if (headingMatch) {
+        hasStructured = true;
+        const level = headingMatch[1].length;
+        minHeading = Math.min(minHeading, level);
+        items.push({ kind: 'heading', level, text: headingMatch[2].trim() });
+        continue;
+      }
+      const listMatch = rawLine.match(/^([ \t]*)(?:[-*+]|\d+\.)\s+(.+)$/);
+      if (listMatch) {
+        hasStructured = true;
+        const indent = listMatch[1].replace(/\t/g, '  ').length;
+        items.push({ kind: 'list', indent, text: listMatch[2].trim() });
+        continue;
+      }
     }
     if (items.length) {
-      items[items.length - 1].notes = (items[items.length - 1].notes || '') + (items[items.length - 1].notes ? '\n' : '') + rawLine.trim();
+      items[items.length - 1].notes = (items[items.length - 1].notes || '') + (items[items.length - 1].notes !== undefined ? '\n' : '') + (inFence ? rawLine : trimmed);
     }
   }
   if (!hasStructured || items.length < 2) return null;
@@ -9028,12 +9208,13 @@ function parseMarkdownTree(raw) {
     }
     while (stack.length && stack.at(-1).depth >= depth) stack.pop();
     const text = item.text;
-    const isCheck = /^\[([ xX]?)\]\s+/.test(text);
-    const cleanTitle = text.replace(/^\[([ xX]?)\]\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1');
+    const isCheck = /^\s*\[([ xX✓]?)\]\s+/.test(text);
+    const cleanTitle = text.replace(/^\s*\[([ xX✓]?)\]\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1');
     const tone = nodes.length === 0 ? 'topic'
       : isCheck ? 'action'
       : /[?？]$/.test(cleanTitle) ? 'question' : 'idea';
-    const body = isCheck ? `- ${text}` : (item.notes || '');
+    const trimmedNotes = (item.notes || '').trim();
+    const body = isCheck ? (`- ${text}` + (trimmedNotes ? `\n${trimmedNotes}` : '')) : trimmedNotes;
     const node = {
       id: CanvasData.uid(), x: 0, y: 0, w: 260, h: body ? 140 : 62,
       tone, title: cleanTitle, body,
@@ -9240,7 +9421,14 @@ function extractToSubBoard() {
 
   const subNodes = current.nodes.filter(n => movedSet.has(n.id)).map(n => {
     const clone = structuredClone(n);
-    delete clone.subBoardId;
+    if (portalNode && n.id === portalNode.id) {
+      delete clone.subBoardId;
+    } else if (clone.subBoardId) {
+      const childBoard = workspace.boards.find(b => b.id === clone.subBoardId);
+      if (childBoard && childBoard.settings.parentId === current.id) {
+        childBoard.settings.parentId = subBoard.id;
+      }
+    }
     return clone;
   });
   const subEdges = current.edges.filter(e => movedSet.has(e.from) && movedSet.has(e.to)).map(e => structuredClone(e));
@@ -9253,8 +9441,9 @@ function extractToSubBoard() {
     portalNode.subBoardId = subBoard.id;
     current.nodes = current.nodes.filter(n => !removeIds.has(n.id));
     current.edges = current.edges.filter(e => !removeIds.has(e.from) && !removeIds.has(e.to));
-    current.settings.folded = current.settings.folded.filter(id => !removeIds.has(id));
+    current.settings.folded = current.settings.folded.filter(id => !movedSet.has(id));
     for (const frame of current.settings.frames) frame.members = frame.members.filter(id => !removeIds.has(id));
+    if (removeIds.has(current.settings.layout.rootId)) current.settings.layout.rootId = portalNode.id;
     selection = { kind: 'cards', ids: new Set([portalNode.id]) };
   } else {
     const selectedNodes = current.nodes.filter(n => movedSet.has(n.id));
@@ -9291,6 +9480,7 @@ function extractToSubBoard() {
     current.edges = rewired;
     current.settings.folded = current.settings.folded.filter(id => !movedSet.has(id));
     for (const frame of current.settings.frames) frame.members = frame.members.filter(id => !movedSet.has(id));
+    if (movedSet.has(current.settings.layout.rootId)) current.settings.layout.rootId = null;
     selection = { kind: 'cards', ids: new Set([portal.id]) };
   }
   current.settings.frames = current.settings.frames.filter(frame => frame.members.length || frame.box);
@@ -9355,7 +9545,7 @@ function beginPointer(event) {
     finishInline({ keepFocus: true });
   }
   if (event.button > 2 || modalOpen() || layoutDraft ||
-      event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-subboard],a[href],.canvas-frame-input')) return;
+      event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-subboard],a[href],.canvas-frame-input')) return;
   const here = point(event);
   lastPointerLocal = here;
   if (event.pointerType === 'touch') {
@@ -9775,8 +9965,17 @@ function endPointer(event) {
     if (frame) {
       checkpoint();
       frame.box = active.nextBox;
+      const existingHiddenMembers = new Set(frame.members.filter(id => visibility.hidden.has(id)));
       frame.members = board().nodes.filter(node => {
-        const rect = cardRect(node);
+        let targetNode = node;
+        if (visibility.hidden.has(node.id)) {
+          if (!existingHiddenMembers.has(node.id)) return false;
+          let anc = hierarchy.parent.get(node.id);
+          while (anc && visibility.hidden.has(anc)) anc = hierarchy.parent.get(anc);
+          targetNode = anc ? nodeBy(anc) : null;
+          if (!targetNode) return false;
+        }
+        const rect = cardRect(targetNode);
         const cx = rect.x + rect.w / 2;
         const cy = rect.y + rect.h / 2;
         return cx >= active.nextBox.x && cx <= active.nextBox.x + active.nextBox.w &&
@@ -9790,15 +9989,46 @@ function endPointer(event) {
   if (active.positions) {
     if (active.matrix) return finishMatrixDrag(active, matrixTarget);
     if (dropParent && active.kind === 'drag' && CanvasViews.adoptAsChildren([...active.positions.keys()], dropParent, active.positions)) return;
+    const foldedMovedIds = active.kind === 'drag'
+      ? [...active.positions.keys()].filter(id => board().settings.folded.includes(id))
+      : [];
+    const hiddenMoved = foldedMovedIds.length
+      ? CanvasLayout.foldedDescendants(hierarchy, foldedMovedIds) : new Set();
+    const hiddenDeltas = new Map();
+    if (hiddenMoved.size) {
+      for (const id of foldedMovedIds) {
+        const orig = nodeBy(id);
+        const upd = active.positions.get(id);
+        if (!orig || !upd) continue;
+        const dx = upd.x - orig.x;
+        const dy = upd.y - orig.y;
+        if (!dx && !dy) continue;
+        for (const subId of CanvasLayout.subtree(hierarchy, id)) {
+          if (subId !== id && hiddenMoved.has(subId) && !active.positions.has(subId)) {
+            hiddenDeltas.set(subId, { dx, dy });
+          }
+        }
+      }
+    }
+    const preDragBoxes = active.kind === 'drag' && !active.frame && active.moved && board().settings.frames.length
+      ? new Map(board().settings.frames.map(frame => [frame.id, CanvasViews.frameRect(frame)]))
+      : null;
     checkpoint();
     for (const [id, update] of active.positions) Object.assign(nodeBy(id), update);
+    for (const [id, delta] of hiddenDeltas) {
+      const hiddenNode = nodeBy(id);
+      if (hiddenNode && !hiddenNode.pinned) {
+        hiddenNode.x = coordinate(hiddenNode.x + delta.dx);
+        hiddenNode.y = coordinate(hiddenNode.y + delta.dy);
+      }
+    }
     if (active.frame && active.movedBox) {
       const frame = board().settings.frames.find(f => f.id === active.frame);
       if (frame) frame.box = active.movedBox;
     }
     let frameMessages = [];
     if (active.kind === 'drag' && !active.frame && active.moved) {
-      frameMessages = CanvasViews.syncMembershipAfterDrag([...active.positions.keys()].map(nodeBy).filter(Boolean));
+      frameMessages = CanvasViews.syncMembershipAfterDrag([...active.positions.keys()].map(nodeBy).filter(Boolean), preDragBoxes);
     }
     render();
     save();
@@ -9978,6 +10208,7 @@ const action = {
 const layoutSafeActions = new Set(['arrange', 'fit', 'zoom-in', 'zoom-out', 'zoom-reset', 'toggle-map']);
 
 function runAction(name, run = action[name]) {
+  if (inlineEdit && name !== 'undo' && name !== 'redo' && name !== 'new-card') finishInline({ keepFocus: true });
   if (layoutDraft && !layoutSafeActions.has(name)) cancelLayout();
   if (openPopover && !['boards', 'files', 'search'].includes(name)) closePopover();
   if (openSelectionSubPopover && !['align-menu', 'selection-more'].includes(name)) closeSelectionSubPopovers();
@@ -10310,6 +10541,7 @@ document.addEventListener('keydown', event => {
   }
   if (mod && key === 'k') {
     event.preventDefault();
+    if (inlineEdit) finishInline({ keepFocus: true });
     togglePopover('search', true);
     return;
   }
@@ -10412,8 +10644,9 @@ document.addEventListener('keydown', event => {
     removeSelected();
   } else {
     const shortcuts = {
-      n: action['new-card'], v: action['mode-select'], h: action['mode-hand'], c: action['mode-link'],
-      f: action.fit, e: editSelection, m: action['toggle-map'], '+': action['zoom-in'], '=': action['zoom-in'],
+      n: () => { dismissIdleTip(); openInline(blankCard(), { isNew: true, triggerKey: 'n' }); },
+      v: action['mode-select'], h: action['mode-hand'], c: action['mode-link'],
+      f: action.fit, e: () => editSelection({ triggerKey: 'e' }), m: action['toggle-map'], '+': action['zoom-in'], '=': action['zoom-in'],
       '-': action['zoom-out'], '0': action['zoom-reset'],
     };
     if (shortcuts[key]) {

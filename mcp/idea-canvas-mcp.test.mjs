@@ -181,7 +181,169 @@ test('offline CRUD, subtree guard, pre-deletion backup, and mirror sync work end
     expect(pushed.synced).toBe(true);
     const afterCards = await runTool('canvas_get_cards', { boardId: 'test-board', cardIds: ['home'] }, cfg);
     expect(afterCards.cards[0].title).toBe('根主题已更新');
+
+    // NaN / Infinity coordinates rejected, parentId: null detaches branch edge, sibling ordering without parentId works
+    await expect(
+      runTool('canvas_upsert_cards', { boardId: 'test-board', cards: [{ id: 'bad', x: Number.NaN }] }, cfg),
+    ).rejects.toThrow(/无效/);
+    await runTool(
+      'canvas_upsert_cards',
+      {
+        boardId: 'test-board',
+        cards: [
+          { id: 'x1', parentId: 'home', title: 'X1' },
+          { id: 'x2', parentId: 'home', title: 'X2' },
+        ],
+      },
+      cfg,
+    );
+    await runTool(
+      'canvas_upsert_cards',
+      { boardId: 'test-board', cards: [{ id: 'x2', beforeSiblingId: 'x1' }] },
+      cfg,
+    );
+    const reordered = await runTool('canvas_get_outline', { boardId: 'test-board', maxDepth: 2 }, cfg);
+    expect(reordered.outline[0].children.map((x) => x.id)).toEqual(['x2', 'x1']);
+
+    await runTool(
+      'canvas_upsert_cards',
+      { boardId: 'test-board', cards: [{ id: 'x2', parentId: null, priority: 'none' }] },
+      cfg,
+    );
+    const detached = await runTool('canvas_get_cards', { boardId: 'test-board', cardIds: ['x2'] }, cfg);
+    expect(detached.cards[0].parentId).toBeNull();
+    expect(detached.cards[0].priority).toBeUndefined();
+
+    // Missing sibling ID fails explicitly, limit: 0 returns []
+    await expect(
+      runTool('canvas_upsert_cards', { boardId: 'test-board', cards: [{ id: 'x2', beforeSiblingId: 'nonexistent-sib' }] }, cfg),
+    ).rejects.toThrow(/找不到参照同级卡片/);
+    const zeroLimit = await runTool('canvas_get_cards', { boardId: 'test-board', limit: 0 }, cfg);
+    expect(zeroLimit.cards).toEqual([]);
+
+    // Missing / corrupt mirror errors & mirror themes preserved on pull
+    await expect(
+      runTool('canvas_sync_mirror', { mirrorPath: path.join(cfg.dataDir, 'missing.json'), direction: 'check' }, cfg),
+    ).rejects.toThrow(/找不到项目镜像/);
+    const badMirror = path.join(cfg.dataDir, 'corrupt.json');
+    fs.writeFileSync(badMirror, '{not-json');
+    await expect(runTool('canvas_sync_mirror', { mirrorPath: badMirror, direction: 'check' }, cfg)).rejects.toThrow(/无法解析/);
+
+    const themedMirror = path.join(cfg.dataDir, 'themed-mirror.json');
+    const latestDisk = JSON.parse(fs.readFileSync(path.join(cfg.dataDir, '画布数据.json'), 'utf8'));
+    const customTheme = [{ id: 't1', name: '主题一', appearance: latestDisk.boards[0].settings.appearance }];
+    fs.writeFileSync(
+      themedMirror,
+      JSON.stringify({ version: 3, activeId: 'test-board', boards: [latestDisk.boards[0]], themes: customTheme }),
+    );
+    await runTool('canvas_sync_mirror', { mirrorPath: themedMirror, direction: 'pull' }, cfg);
+    await runTool('canvas_upsert_cards', { boardId: 'test-board', cards: [{ id: 'x1', title: 'X1-updated' }] }, cfg);
+    await runTool('canvas_sync_mirror', { mirrorPath: themedMirror, direction: 'pull' }, cfg);
+    const mirrorAfterPull = JSON.parse(fs.readFileSync(themedMirror, 'utf8'));
+    expect(mirrorAfterPull.themes).toEqual(customTheme);
   } finally {
+    fs.rmSync(cfg.dataDir, { recursive: true, force: true });
+  }
+});
+
+test('MCP httpCall works against loopback server even when HTTP_PROXY is set', async () => {
+  const cfg = makeTempEnv();
+  const token = 'a'.repeat(64);
+  fs.writeFileSync(path.join(cfg.dataDir, 'local-api.key'), Buffer.from(token, 'hex'), { mode: 0o600 });
+  const srv = net.createServer((sock) => {
+    sock.on('data', () => {
+      const body = JSON.stringify({ ok: true, port: srv.address().port, pid: 12345 });
+      const res = [
+        'HTTP/1.1 200 OK',
+        'Content-Type: application/json',
+        `Content-Length: ${Buffer.byteLength(body)}`,
+        'Connection: close',
+        '',
+        body,
+      ].join('\r\n');
+      sock.end(res);
+    });
+  });
+  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  const port = srv.address().port;
+  try {
+    const out = await runTool('canvas_get_boards_via_status_check_invalid', {}, cfg).catch(() => null);
+    expect(out).toBeNull();
+    // Verify /api/agent/health + /api/state loopback over net socket despite HTTP_PROXY
+    const healthSrv = net.createServer((sock) => {
+      let reqBuf = '';
+      sock.on('data', (chunk) => {
+        reqBuf += chunk.toString('utf8');
+        if (!reqBuf.includes('\r\n\r\n')) return;
+        const first = reqBuf.split('\r\n')[0];
+        const body = first.includes('/api/agent/health')
+          ? JSON.stringify({ ok: true, port: healthSrv.address().port, pid: 999 })
+          : JSON.stringify({ revision: 'empty', json: null });
+        sock.end(
+          `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+        );
+      });
+    });
+    await new Promise((resolve) => healthSrv.listen(0, '127.0.0.1', resolve));
+    try {
+      const status = await runTool('canvas_status', {}, { dataDir: cfg.dataDir, port: healthSrv.address().port });
+      expect(status.mode).toBe('live');
+      expect(status.health.pid).toBe(999);
+    } finally {
+      healthSrv.close();
+    }
+  } finally {
+    srv.close();
+    fs.rmSync(cfg.dataDir, { recursive: true, force: true });
+  }
+});
+
+test('MCP stdio framing handles chunked LSP Content-Type headers and recovers from errors', async () => {
+  const cfg = makeTempEnv();
+  try {
+    const child = spawn('/Users/edward/.local/bin/node', [mcpEntry], {
+      env: { ...process.env, IDEA_CANVAS_DATA_DIR: cfg.dataDir, IDEA_CANVAS_PORT: String(cfg.port) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const outChunks = [];
+    child.stdout.on('data', (d) => outChunks.push(d));
+    const msg1 = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } });
+    const lsp1 = `Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(msg1, 'utf8')}\r\n\r\n${msg1}`;
+    // Split mid-header ("Content-") to verify partial-chunk LSP detection
+    child.stdin.write(lsp1.slice(0, 8));
+    await new Promise((r) => setTimeout(r, 30));
+    child.stdin.write(lsp1.slice(8));
+    await new Promise((r) => setTimeout(r, 300));
+    child.kill();
+    const raw = Buffer.concat(outChunks).toString('utf8');
+    expect(raw).toContain('Content-Length:');
+    const parsed = JSON.parse(raw.slice(raw.indexOf('\r\n\r\n') + 4));
+    expect(parsed.result.protocolVersion).toBe('2025-03-26');
+  } finally {
+    fs.rmSync(cfg.dataDir, { recursive: true, force: true });
+  }
+});
+
+test('MCP httpCall surfaces HTTP 413 even on early RST and supports chunked responses', async () => {
+  const cfg = makeTempEnv();
+  const token = 'b'.repeat(64);
+  fs.writeFileSync(path.join(cfg.dataDir, 'local-api.key'), Buffer.from(token, 'hex'), { mode: 0o600 });
+  const srv = net.createServer((sock) => {
+    sock.on('data', () => {
+      const body = JSON.stringify({ error: 'too_large', message: '画布超出本机同步的大小限制。' });
+      sock.write(
+        `HTTP/1.1 413 Content Too Large\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+      );
+      sock.resetAndDestroy?.() ?? sock.destroy();
+    });
+  });
+  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  try {
+    await expect(
+      runTool('canvas_status', {}, { dataDir: cfg.dataDir, port: srv.address().port }),
+    ).rejects.toThrow(/413/);
+  } finally {
+    srv.close();
     fs.rmSync(cfg.dataDir, { recursive: true, force: true });
   }
 });

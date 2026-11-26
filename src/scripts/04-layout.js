@@ -980,7 +980,11 @@ function alignSelection(command) {
   const result = CanvasLayout.align(nodes, command);
   if (nodes.every(node => result.get(node.id).x === node.x && result.get(node.id).y === node.y)) return;
   const before = capturePositions();
-  applyChange(() => { for (const [id, position] of result) Object.assign(nodeBy(id), position); });
+  applyChange(() => {
+    for (const [id, position] of result) {
+      Object.assign(nodeBy(id), { x: coordinate(position.x), y: coordinate(position.y) });
+    }
+  });
   animatePositions(before);
   focusCanvas();
 }

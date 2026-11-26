@@ -9,7 +9,7 @@ function beginPointer(event) {
     finishInline({ keepFocus: true });
   }
   if (event.button > 2 || modalOpen() || layoutDraft ||
-      event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-subboard],a[href],.canvas-frame-input')) return;
+      event.target.closest('[data-card-fold],[data-card-status],[data-card-check],[data-card-sources],[data-subboard],a[href],.canvas-frame-input')) return;
   const here = point(event);
   lastPointerLocal = here;
   if (event.pointerType === 'touch') {
@@ -429,8 +429,17 @@ function endPointer(event) {
     if (frame) {
       checkpoint();
       frame.box = active.nextBox;
+      const existingHiddenMembers = new Set(frame.members.filter(id => visibility.hidden.has(id)));
       frame.members = board().nodes.filter(node => {
-        const rect = cardRect(node);
+        let targetNode = node;
+        if (visibility.hidden.has(node.id)) {
+          if (!existingHiddenMembers.has(node.id)) return false;
+          let anc = hierarchy.parent.get(node.id);
+          while (anc && visibility.hidden.has(anc)) anc = hierarchy.parent.get(anc);
+          targetNode = anc ? nodeBy(anc) : null;
+          if (!targetNode) return false;
+        }
+        const rect = cardRect(targetNode);
         const cx = rect.x + rect.w / 2;
         const cy = rect.y + rect.h / 2;
         return cx >= active.nextBox.x && cx <= active.nextBox.x + active.nextBox.w &&
@@ -444,15 +453,46 @@ function endPointer(event) {
   if (active.positions) {
     if (active.matrix) return finishMatrixDrag(active, matrixTarget);
     if (dropParent && active.kind === 'drag' && CanvasViews.adoptAsChildren([...active.positions.keys()], dropParent, active.positions)) return;
+    const foldedMovedIds = active.kind === 'drag'
+      ? [...active.positions.keys()].filter(id => board().settings.folded.includes(id))
+      : [];
+    const hiddenMoved = foldedMovedIds.length
+      ? CanvasLayout.foldedDescendants(hierarchy, foldedMovedIds) : new Set();
+    const hiddenDeltas = new Map();
+    if (hiddenMoved.size) {
+      for (const id of foldedMovedIds) {
+        const orig = nodeBy(id);
+        const upd = active.positions.get(id);
+        if (!orig || !upd) continue;
+        const dx = upd.x - orig.x;
+        const dy = upd.y - orig.y;
+        if (!dx && !dy) continue;
+        for (const subId of CanvasLayout.subtree(hierarchy, id)) {
+          if (subId !== id && hiddenMoved.has(subId) && !active.positions.has(subId)) {
+            hiddenDeltas.set(subId, { dx, dy });
+          }
+        }
+      }
+    }
+    const preDragBoxes = active.kind === 'drag' && !active.frame && active.moved && board().settings.frames.length
+      ? new Map(board().settings.frames.map(frame => [frame.id, CanvasViews.frameRect(frame)]))
+      : null;
     checkpoint();
     for (const [id, update] of active.positions) Object.assign(nodeBy(id), update);
+    for (const [id, delta] of hiddenDeltas) {
+      const hiddenNode = nodeBy(id);
+      if (hiddenNode && !hiddenNode.pinned) {
+        hiddenNode.x = coordinate(hiddenNode.x + delta.dx);
+        hiddenNode.y = coordinate(hiddenNode.y + delta.dy);
+      }
+    }
     if (active.frame && active.movedBox) {
       const frame = board().settings.frames.find(f => f.id === active.frame);
       if (frame) frame.box = active.movedBox;
     }
     let frameMessages = [];
     if (active.kind === 'drag' && !active.frame && active.moved) {
-      frameMessages = CanvasViews.syncMembershipAfterDrag([...active.positions.keys()].map(nodeBy).filter(Boolean));
+      frameMessages = CanvasViews.syncMembershipAfterDrag([...active.positions.keys()].map(nodeBy).filter(Boolean), preDragBoxes);
     }
     render();
     save();
@@ -632,6 +672,7 @@ const action = {
 const layoutSafeActions = new Set(['arrange', 'fit', 'zoom-in', 'zoom-out', 'zoom-reset', 'toggle-map']);
 
 function runAction(name, run = action[name]) {
+  if (inlineEdit && name !== 'undo' && name !== 'redo' && name !== 'new-card') finishInline({ keepFocus: true });
   if (layoutDraft && !layoutSafeActions.has(name)) cancelLayout();
   if (openPopover && !['boards', 'files', 'search'].includes(name)) closePopover();
   if (openSelectionSubPopover && !['align-menu', 'selection-more'].includes(name)) closeSelectionSubPopovers();
@@ -964,6 +1005,7 @@ document.addEventListener('keydown', event => {
   }
   if (mod && key === 'k') {
     event.preventDefault();
+    if (inlineEdit) finishInline({ keepFocus: true });
     togglePopover('search', true);
     return;
   }
@@ -1066,8 +1108,9 @@ document.addEventListener('keydown', event => {
     removeSelected();
   } else {
     const shortcuts = {
-      n: action['new-card'], v: action['mode-select'], h: action['mode-hand'], c: action['mode-link'],
-      f: action.fit, e: editSelection, m: action['toggle-map'], '+': action['zoom-in'], '=': action['zoom-in'],
+      n: () => { dismissIdleTip(); openInline(blankCard(), { isNew: true, triggerKey: 'n' }); },
+      v: action['mode-select'], h: action['mode-hand'], c: action['mode-link'],
+      f: action.fit, e: () => editSelection({ triggerKey: 'e' }), m: action['toggle-map'], '+': action['zoom-in'], '=': action['zoom-in'],
       '-': action['zoom-out'], '0': action['zoom-reset'],
     };
     if (shortcuts[key]) {

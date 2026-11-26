@@ -152,20 +152,22 @@ function readNoteSourcesFromForm() {
   const items = [];
   for (const row of noteSourcesRows.children) {
     const [labelInput, urlInput] = row.querySelectorAll('input');
-    const label = labelInput.value.trim();
-    const rawUrl = urlInput.value.trim();
+    const label = utf8Slice([...labelInput.value.trim()].slice(0, 160).join(''), 600);
     if (!label) continue;
-    const ext = rawUrl ? safeExternalUrl(rawUrl) : null;
-    const url = ext || (/^(?:\.\.?\/)?[A-Za-z0-9._/-]+(?:#[A-Za-z0-9._-]+)?$/.test(rawUrl) ? rawUrl : '');
+    const url = cleanSourceUrl(urlInput.value);
     items.push(url ? { label, url } : { label });
+    if (items.length >= 64) break;
   }
   return items;
 }
 
 function openNote(node, isNew = false, parent = null) {
+  if (inlineEdit) finishInline({ keepFocus: true });
   dismissIdleTip();
   closePopover();
+  closeSelectionSubPopovers();
   closeSourcePopover();
+  closeContextMenu();
   modalNote = { node, isNew, parent, tone: node.tone, checkpointed: false, bodyChanged: false, imageJob: null };
   $('#note-heading').textContent = isNew ? (parent ? '新建分支' : '新建卡片') : '编辑卡片';
   noteTitle.value = node.title;
@@ -193,7 +195,7 @@ function syncNote() {
   const { text: body, html: richBody } = bodyChanged
     ? richContent(noteBody.innerHTML)
     : { text: node.body, html: node.richBody };
-  const note = noteExtra.value.trim();
+  const note = utf8Slice(noteExtra.value.trim(), 16_000);
   const sources = readNoteSourcesFromForm();
   modalNote.bodyChanged = false;
   noteBody.dataset.empty = String(!richBody && !body.trim());
@@ -214,7 +216,10 @@ function syncNote() {
   else delete node.sources;
   if (isNew) {
     board().nodes.push(node);
-    if (parent) addEdge(parent.id, node.id, 'branch');
+    if (parent && nodeBy(parent.id)) {
+      addEdge(parent.id, node.id, 'branch');
+      board().settings.folded = board().settings.folded.filter(id => id !== parent.id);
+    }
     modalNote.isNew = false;
     selection = { kind: 'cards', ids: new Set([node.id]) };
   }
@@ -565,7 +570,10 @@ function syncInline() {
   else delete node.richBody;
   if (isNew) {
     board().nodes.push(node);
-    if (parent) addEdge(parent.id, node.id, 'branch');
+    if (parent && nodeBy(parent.id)) {
+      addEdge(parent.id, node.id, 'branch');
+      board().settings.folded = board().settings.folded.filter(id => id !== parent.id);
+    }
     inlineEdit.isNew = false;
     selection = { kind: 'cards', ids: new Set([node.id]) };
   }
@@ -588,6 +596,9 @@ function finishInline(options = {}) {
   const view = cardIndex.get(active.node.id);
   if (view) view.size = null;
   if (active.isNew) {
+    cardSizes.unobserve(active.element);
+    active.element.remove();
+    cardIndex.delete(active.node.id);
     render();
     return;
   }
@@ -601,6 +612,7 @@ function cancelInline() {
   if (!active) return;
   if (active.isNew) {
     inlineEdit = null;
+    cardSizes.unobserve(active.element);
     active.element.remove();
     cardIndex.delete(active.node.id);
     render();
@@ -610,9 +622,9 @@ function cancelInline() {
   finishInline();
 }
 
-function openInline(node, { isNew = false, parent = null, focusBody = false } = {}) {
+function openInline(node, { isNew = false, parent = null, focusBody = false, triggerKey = null } = {}) {
   if (inlineEdit?.node.id === node.id) {
-    (focusBody ? inlineEdit.bodyEditor : inlineEdit.titleInput).focus();
+    (focusBody ? inlineEdit.bodyEditor : inlineEdit.titleInput).focus({ preventScroll: true });
     return;
   }
   if (inlineEdit) finishInline({ keepFocus: true });
@@ -622,28 +634,13 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
   closeSourcePopover();
   closeContextMenu();
   if (isNew) {
-    if (!board().nodes.includes(node)) {
-      const element = document.createElement('article');
-      element.className = 'card';
-      element.tabIndex = 0;
-      element.dataset.card = node.id;
-      element.dataset.tone = node.tone;
-      element.dataset.profile = 'note';
-      element.innerHTML = '<div class="card-copy"><div class="card-type"></div><h2 class="card-title"></h2><div class="card-cover" hidden></div><div class="card-body flow-text"></div><div class="card-meta" hidden></div></div>';
-      const typeEl = element.querySelector('.card-type');
-      typeEl.innerHTML = icon(node.tone) + '<span>' + CanvasData.tone[node.tone].label + '</span>';
-      typeEl.hidden = node.tone === 'idea';
-      cards.append(element);
-      placeCard(element, node);
-      cardIndex.set(node.id, {
-        element,
-        type: element.querySelector('.card-type'),
-        title: element.querySelector('.card-title'),
-        cover: element.querySelector('.card-cover'),
-        body: element.querySelector('.card-body'),
-        meta: element.querySelector('.card-meta'),
-        fold: document.createElement('button'),
-      });
+    if (!board().nodes.includes(node) && !cardIndex.has(node.id)) {
+      const createdView = createCardView(node.id);
+      createdView.element.dataset.tone = node.tone;
+      createdView.element.dataset.profile = 'note';
+      createdView.type.innerHTML = icon(node.tone) + '<span>' + CanvasData.tone[node.tone].label + '</span>';
+      createdView.type.hidden = node.tone === 'idea';
+      placeCard(createdView.element, node);
     }
   } else {
     selection = { kind: 'cards', ids: new Set([node.id]) };
@@ -753,16 +750,48 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
   };
   renderSelection();
 
-  titleInput.addEventListener('input', e => { if (!e.isComposing) syncInline(); });
+  let suppressKey = triggerKey ? triggerKey.toLowerCase() : null;
+  const initialTitleValue = node.title;
+  let clearSuppress = () => { suppressKey = null; };
+  if (suppressKey) {
+    let timer = 0;
+    clearSuppress = () => {
+      suppressKey = null;
+      clearTimeout(timer);
+      window.removeEventListener('keyup', clearSuppress, true);
+    };
+    window.addEventListener('keyup', clearSuppress, true);
+    timer = setTimeout(clearSuppress, 300);
+    titleInput.addEventListener('beforeinput', e => {
+      if (suppressKey && e.inputType === 'insertText' && e.data?.toLowerCase() === suppressKey) {
+        clearSuppress();
+        e.preventDefault();
+      }
+    });
+  }
+
+  titleInput.addEventListener('input', e => {
+    if (suppressKey && (titleInput.value.toLowerCase() === suppressKey ||
+        titleInput.value.toLowerCase() === (initialTitleValue + suppressKey).toLowerCase())) {
+      clearSuppress();
+      titleInput.value = initialTitleValue;
+      if (!isNew) titleInput.select();
+      return;
+    }
+    if (!e.isComposing) syncInline();
+  });
   titleInput.addEventListener('compositionend', syncInline);
   titleInput.addEventListener('keydown', e => {
+    if (suppressKey && !e.repeat) clearSuppress();
     if (e.isComposing || e.keyCode === 229) return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') return;
     e.stopPropagation();
     if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault();
-      if (!titleInput.value.trim() && !bodyEditor.textContent.trim() && isNew) return;
+      if (inlineEdit?.isNew && !titleInput.value.trim() && !bodyEditor.textContent.trim() && !bodyEditor.querySelector('img')) return;
       const currentNode = node;
       finishInline({ keepFocus: true });
+      if (!nodeBy(currentNode.id)) return;
       openInline(blankCard(null, currentNode), { isNew: true, parent: currentNode });
     } else if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
@@ -789,6 +818,7 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
   bodyEditor.addEventListener('click', e => handleChecklistClickInEditor(e, bodyEditor, editInlineBody));
   bodyEditor.addEventListener('keydown', e => {
     if (e.isComposing || e.keyCode === 229) return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') return;
     e.stopPropagation();
     if (handleChecklistEnter(e, bodyEditor, editInlineBody)) return;
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -799,8 +829,10 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
       finishInline();
     } else if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault();
+      if (inlineEdit?.isNew && !titleInput.value.trim() && !bodyEditor.textContent.trim() && !bodyEditor.querySelector('img')) return;
       const currentNode = node;
       finishInline({ keepFocus: true });
+      if (!nodeBy(currentNode.id)) return;
       openInline(blankCard(null, currentNode), { isNew: true, parent: currentNode });
     }
   });
@@ -829,14 +861,11 @@ function openInline(node, { isNew = false, parent = null, focusBody = false } = 
     }
   });
 
-  requestAnimationFrame(() => {
-    if (inlineEdit?.node.id !== node.id) return;
-    if (focusBody) bodyEditor.focus();
-    else {
-      titleInput.focus();
-      if (!isNew) titleInput.select();
-    }
-  });
+  if (focusBody) bodyEditor.focus({ preventScroll: true });
+  else {
+    titleInput.focus({ preventScroll: true });
+    if (!isNew) titleInput.select();
+  }
 }
 
 function addBranch(sibling = false) {
@@ -847,11 +876,11 @@ function addBranch(sibling = false) {
   openInline(blankCard(null, parent, sibling ? node : null), { isNew: true, parent });
 }
 
-function editSelection() {
+function editSelection({ triggerKey = null } = {}) {
   const note = chosenCard();
   const edge = chosenEdge();
-  if (note) openInline(note);
-  if (edge) openText('edge', edge.label, edge.id);
+  if (note) openInline(note, { triggerKey });
+  if (edge) openText('edge', edge.label, edge.id, triggerKey);
 }
 
 function duplicateSelected() {
@@ -900,7 +929,7 @@ function removeSelected() {
   focusCanvas();
 }
 
-function openText(kind, initial = '', id = null) {
+function openText(kind, initial = '', id = null, triggerKey = null) {
   closePopover();
   modalText = { kind, id };
   const wording = {
@@ -916,6 +945,29 @@ function openText(kind, initial = '', id = null) {
   textField.value = initial;
   textDialog.showModal();
   textField.select();
+  if (triggerKey) {
+    const target = triggerKey.toLowerCase();
+    let timer = 0;
+    const onBeforeInput = e => {
+      if (e.inputType === 'insertText' && e.data?.toLowerCase() === target) {
+        cleanup();
+        e.preventDefault();
+      }
+    };
+    const onKeyDown = e => { if (!e.repeat) cleanup(); };
+    const cleanup = () => {
+      clearTimeout(timer);
+      textField.removeEventListener('beforeinput', onBeforeInput);
+      textField.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', cleanup, true);
+      textDialog.removeEventListener('close', cleanup);
+    };
+    textField.addEventListener('beforeinput', onBeforeInput);
+    textField.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', cleanup, true);
+    textDialog.addEventListener('close', cleanup);
+    timer = setTimeout(cleanup, 300);
+  }
 }
 
 function switchBoard(id) {
@@ -984,6 +1036,10 @@ function deleteBoard() {
     }
   }
   history.delete(deletedId);
+  for (const stack of history.values()) {
+    stack.past = stack.past.filter(entry => !entry.workspaceBoards);
+    stack.future = stack.future.filter(entry => !entry.workspaceBoards);
+  }
   switchBoard(workspace.boards[Math.min(index, workspace.boards.length - 1)].id);
   toast('已删除画布');
 }

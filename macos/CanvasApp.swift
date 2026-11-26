@@ -156,6 +156,8 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
                 alert.messageText = "暂时无法连接浏览器"
                 alert.informativeText = "请检查本机画布能正常保存，再退出并重新打开桌面版。"
                 alert.addButton(withTitle: "确定")
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
                 alert.beginSheetModal(for: window, completionHandler: nil)
                 return
             }
@@ -165,12 +167,18 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
             clipboard.setString(link.absoluteString, forType: .string)
             alert.messageText = "已复制浏览器同步链接"
             alert.informativeText = "把链接粘贴到 GPT 内嵌浏览器的地址栏。首次连接后，这台 Mac 上的两个入口会读写同一份画布。链接仅可使用一次。"
+            alert.addButton(withTitle: "确定")
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            alert.beginSheetModal(for: window, completionHandler: nil)
         } catch {
             alert.messageText = "暂时无法复制同步链接"
             alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "确定")
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            alert.beginSheetModal(for: window, completionHandler: nil)
         }
-        alert.addButton(withTitle: "确定")
-        alert.beginSheetModal(for: window, completionHandler: nil)
     }
 
     private static func snapshotObject(_ snapshot: CanvasSyncSnapshot) -> [String: Any] {
@@ -197,6 +205,8 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
             alert.informativeText = "返回画布可导出可编辑 HTML。"
             alert.addButton(withTitle: "返回画布")
             alert.addButton(withTitle: "退出")
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
             alert.beginSheetModal(for: window) { response in
                 self.terminationPending = false
                 if response == .alertSecondButtonReturn {
@@ -315,11 +325,13 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
                 replyHandler(false, nil)
                 return
             }
-            let outputPath = destination.resolvingSymlinksInPath().path
-            if let store, outputPath == store.file.resolvingSymlinksInPath().path ||
-                outputPath.hasPrefix(store.backups.resolvingSymlinksInPath().path + "/") {
-                replyHandler(nil, "请选择数据文件和历史备份之外的位置。")
-                return
+            let outputPath = destination.resolvingSymlinksInPath().path.lowercased()
+            if let store {
+                let rootPath = store.root.resolvingSymlinksInPath().path.lowercased()
+                if outputPath == rootPath || outputPath.hasPrefix(rootPath + "/") {
+                    replyHandler(nil, "请选择画布数据文件夹之外的位置。")
+                    return
+                }
             }
             fileQueue.async {
                 do {
@@ -437,6 +449,8 @@ final class CanvasApplication: NSObject, NSApplicationDelegate, NSWindowDelegate
                 alert.messageText = "无法切换本机 AI / MCP 接入状态"
                 alert.informativeText = error.localizedDescription
                 alert.addButton(withTitle: "确定")
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
                 alert.beginSheetModal(for: window, completionHandler: nil)
             }
         }

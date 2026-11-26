@@ -257,6 +257,7 @@ const CanvasViews = (() => {
 
   function refresh() {
     const current = board();
+    if (focused && focused.boardId === current.id && !nodeBy(focused.id)) focused = null;
     const active = isFocused();
     const strip = $('#view-focus-strip');
     strip.hidden = !active;
@@ -583,6 +584,12 @@ const CanvasViews = (() => {
     const roots = ids.filter(id => !ids.includes(tree.parent.get(id)));
     if (roots.every(id => tree.parent.get(id) === targetId)) return false;
     const before = capturePositions(dropped);
+    const preDragCoords = new Map(ids.map(id => {
+      const n = nodeBy(id);
+      return n ? [id, { x: n.x, y: n.y }] : null;
+    }).filter(Boolean));
+    const foldedMovedIds = ids.filter(id => current.settings.folded.includes(id));
+    const hiddenMoved = foldedMovedIds.length ? CanvasLayout.foldedDescendants(tree, foldedMovedIds) : new Set();
     const oldParents = roots.map(id => tree.parent.get(id)).filter(Boolean);
     applyChange(() => {
       for (const [id, position] of dropped) Object.assign(nodeBy(id), { x: position.x, y: position.y });
@@ -591,17 +598,37 @@ const CanvasViews = (() => {
       [...siblings, ...roots].forEach((id, index) => { const node = nodeBy(id); if (node) node.order = index; });
       if (CanvasLayout.isTreeMode(current.settings.layout.mode)) {
         relayoutAround(current, [targetId, ...oldParents]);
-        return;
+      } else {
+        const group = ids.map(nodeBy).filter(Boolean);
+        const box = boundsOf(group);
+        const anchor = cardRect(target);
+        const placedSiblings = siblings.filter(id => !visibility.hidden.has(id)).map(nodeBy).filter(Boolean);
+        const below = boundsOf(placedSiblings);
+        const left = below ? below.left : anchor.x + anchor.w + 76;
+        const top = below ? below.bottom + 24 : anchor.y + anchor.h / 2 - box.h / 2;
+        for (const node of group) {
+          Object.assign(node, { x: coordinate(node.x + left - box.left), y: coordinate(node.y + top - box.top) });
+        }
       }
-      const group = ids.map(nodeBy).filter(Boolean);
-      const box = boundsOf(group);
-      const anchor = cardRect(target);
-      const placedSiblings = siblings.filter(id => !visibility.hidden.has(id)).map(nodeBy).filter(Boolean);
-      const below = boundsOf(placedSiblings);
-      const left = below ? below.left : anchor.x + anchor.w + 76;
-      const top = below ? below.bottom + 24 : anchor.y + anchor.h / 2 - box.h / 2;
-      for (const node of group) {
-        Object.assign(node, { x: coordinate(node.x + left - box.left), y: coordinate(node.y + top - box.top) });
+      if (hiddenMoved.size) {
+        const movedHidden = new Set();
+        for (const id of foldedMovedIds) {
+          const orig = preDragCoords.get(id);
+          const nowNode = nodeBy(id);
+          if (!orig || !nowNode) continue;
+          const dx = nowNode.x - orig.x;
+          const dy = nowNode.y - orig.y;
+          if (!dx && !dy) continue;
+          for (const subId of CanvasLayout.subtree(tree, id)) {
+            if (subId === id || !hiddenMoved.has(subId) || preDragCoords.has(subId) || movedHidden.has(subId)) continue;
+            movedHidden.add(subId);
+            const subNode = nodeBy(subId);
+            if (subNode && !subNode.pinned) {
+              subNode.x = coordinate(subNode.x + dx);
+              subNode.y = coordinate(subNode.y + dy);
+            }
+          }
+        }
       }
     });
     animatePositions(before);
@@ -727,12 +754,16 @@ const CanvasViews = (() => {
       const next = input.value.trim();
       input.remove();
       view.handle.hidden = false;
-      if (saveName && next && next !== frame.name) {
-        applyChange(() => { frame.name = next; });
+      if (saveName && next) {
+        const current = board().settings.frames.find(item => item.id === id);
+        if (current && next !== current.name) {
+          applyChange(() => { current.name = next; });
+        }
       }
     };
     input.addEventListener('keydown', event => {
       if (event.isComposing || event.keyCode === 229) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { finish(true); return; }
       event.stopPropagation();
       if (event.key === 'Enter') { event.preventDefault(); finish(true); }
       else if (event.key === 'Escape') { event.preventDefault(); finish(false); }
@@ -765,11 +796,11 @@ const CanvasViews = (() => {
     for (const [id, view] of frameViews) view.element.classList.toggle('is-drop-target', targets.has(id));
   }
 
-  function syncMembershipAfterDrag(movedNodes) {
+  function syncMembershipAfterDrag(movedNodes, preDragBoxes = null) {
     const frames = board().settings.frames;
     if (!frames.length || !movedNodes.length) return [];
     const changes = [];
-    const frameBoxes = new Map(frames.map(frame => [frame.id, frameRect(frame)]));
+    const frameBoxes = preDragBoxes || new Map(frames.map(frame => [frame.id, frameRect(frame)]));
     for (const node of movedNodes) {
       const rect = cardRect(node);
       const center = { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };

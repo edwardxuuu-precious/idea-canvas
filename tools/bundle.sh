@@ -31,6 +31,7 @@ if [[ "${1:-}" == "--check" ]]; then
     exit 0
 fi
 
+chmod 0644 "$staged"
 mv -f -- "$staged" "$output"
 trap - EXIT
 printf '%s\n' "$output"
